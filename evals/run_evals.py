@@ -16,7 +16,7 @@ def run_one(item: dict, number: int) -> dict:
 
   result = graph.invoke(
     {"messages": [{"role": "user", "content": item["question"]}]},
-    context=Context(repo_path="."),
+    context=Context(repo_path=".", repo_id="Irfan240305/Cartograph"),
     config={"configurable": {"thread_id": f"eval-{number}"}, "recursion_limit": 30},
   )
 

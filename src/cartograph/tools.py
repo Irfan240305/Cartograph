@@ -1,44 +1,40 @@
-from dataclasses import dataclass
-
+import json
 import os
+from dataclasses import dataclass
 from pathlib import Path
-
 from typing import Annotated
 
-from langchain.tools import tool, ToolRuntime
-
-from langgraph.types import interrupt
 import numpy as np
-
 import psycopg
+from langchain.tools import ToolRuntime, tool
+from langgraph.types import interrupt
 from pgvector.psycopg import register_vector
 
+from cartograph.guards import make_safe
 from cartograph.llm import get_embedder
 
-import json
-
-from cartograph.guards import make_safe
+from cartograph.repos import map_file
 
 @dataclass
 class Context:
-  repo_path:str
+  repo_path: str
+  repo_id: str
 
-MAX_FILE_LINES=300
-MAX_LIST_ENTRIES=100
-MAX_SEARCH_MATCHES=20
-IGNORED_DIRS={".git", ".venv", "node_modules", "__pycache__", "target"}
 
-def safe_path(repo_path: str, user_path:str) -> Path | None:
-  """Return the real path if it is stays inside the project, otherwise None."""
+MAX_FILE_LINES = 300
+MAX_LIST_ENTRIES = 100
+MAX_SEARCH_MATCHES = 20
+IGNORED_DIRS = {".git", ".venv", "node_modules", "__pycache__", "target", "data"}
+
+
+def safe_path(repo_path: str, user_path: str) -> Path | None:
+  """Return the real path if it stays inside the project, otherwise None."""
   repo = Path(repo_path).resolve()
   target = (repo / user_path).resolve()
-
   if target.is_relative_to(repo):
     return target
   return None
 
-
-##never read secret files, even inside the project
 
 def is_secret(path: Path) -> bool:
   """True if the file is a secret file, otherwise False."""
@@ -48,32 +44,28 @@ def is_secret(path: Path) -> bool:
 @tool
 def read_file(
   path: Annotated[str, "File path inside the project, like 'src/App.java'"],
-  runtime:ToolRuntime[Context]
+  runtime: ToolRuntime[Context],
 ) -> str:
-
   """Read a file from the project. Use this after search_code or list_files to see the actual code before answering."""
-
-  file = safe_path(runtime.context.repo_path , path)
+  file = safe_path(runtime.context.repo_path, path)
   if file is None:
     return f"Error: The file '{path}' is outside the project."
   if is_secret(file):
     return f"Error: The file '{path}' is a secret file and cannot be read."
   if not file.is_file():
-     return f"Error: '{path}' is not a file. Use list_files or search_code to find the correct path."
+    return f"Error: '{path}' is not a file. Use list_files or search_code to find the correct path."
 
   lines = file.read_text(encoding="utf-8", errors="ignore").splitlines()
-  shown =  "\n".join(lines[:MAX_FILE_LINES])
-
+  shown = "\n".join(lines[:MAX_FILE_LINES])
   if len(lines) > MAX_FILE_LINES:
     shown += f"\n\n[Cut at line {MAX_FILE_LINES} of {len(lines)}]"
-
   return make_safe(shown)
+
 
 @tool
 def list_files(
-  runtime : ToolRuntime[Context],
-  folder : Annotated[str | None, "Folder inside the project, like 'src'. Use '.' for the top level"] = ".",
-
+  runtime: ToolRuntime[Context],
+  folder: Annotated[str | None, "Folder inside the project, like 'src'. Use '.' for the top level"] = ".",
 ) -> str:
   """List the files and folders inside the project folder. Use this to understand the project's structure."""
   folder = folder or "."
@@ -89,16 +81,11 @@ def list_files(
     if item.name in IGNORED_DIRS:
       continue
     relative = item.relative_to(repo).as_posix()
-
-    if item.is_dir():
-      entries.append(relative + "/")
-    else:
-      entries.append(relative)
+    entries.append(relative + "/" if item.is_dir() else relative)
 
   if not entries:
     return f"Error: The folder '{folder}' is empty."
   shown = "\n".join(entries[:MAX_LIST_ENTRIES])
-
   if len(entries) > MAX_LIST_ENTRIES:
     shown += f"\n\n[Cut at {MAX_LIST_ENTRIES} entries of {len(entries)}]"
   return shown
@@ -107,10 +94,9 @@ def list_files(
 @tool
 def search_code(
   text: Annotated[str, "Word or name to search for like 'login' or 'AuthService'"],
-  runtime : ToolRuntime[Context],
+  runtime: ToolRuntime[Context],
 ) -> str:
   """Find which files contain the given text, with line numbers. Use this first to locate where something is defined or used."""
-
   repo = Path(runtime.context.repo_path).resolve()
   matches = []
   for file in repo.rglob("*"):
@@ -121,18 +107,18 @@ def search_code(
       continue
     if is_secret(file):
       continue
-
     lines = file.read_text(encoding="utf-8", errors="ignore").splitlines()
     for number, line in enumerate(lines, start=1):
       if text.lower() in line.lower():
         matches.append(f"{relative.as_posix()}:{number}: {line.strip()[:120]}")
+
   if not matches:
-      return f"No matches found for '{text}' in the project."
+    return f"No matches found for '{text}' in the project."
   shown = "\n".join(matches[:MAX_SEARCH_MATCHES])
   if len(matches) >= MAX_SEARCH_MATCHES:
-          
-      shown += f"\n\n[Showing {MAX_SEARCH_MATCHES} of {len(matches)} matches. Try a more specific word.]"
+    shown += f"\n\n[Showing {MAX_SEARCH_MATCHES} of {len(matches)} matches. Try a more specific word.]"
   return make_safe(shown)
+
 
 @tool
 def ask_user(question: Annotated[str, "A short clarifying question for the user"]):
@@ -140,62 +126,68 @@ def ask_user(question: Annotated[str, "A short clarifying question for the user"
   reply = interrupt({"question": question})
   return reply["data"]
 
+
 @tool
 def semantic_search(
   query: Annotated[str, "Describe what you're looking for in plain words, like 'how secret files are protected'"],
+  runtime: ToolRuntime[Context],
 ) -> str:
   """Find code by MEANING, even when you don't know the exact names or words used in the code. Use this first for 'how does X work' or 'where is X handled' questions."""
   try:
-
     query_vector = get_embedder().embed_query(query)
-
     with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
       register_vector(conn)
       rows = conn.execute(
-        "SELECT path, start_line, end_line, content FROM chunks ORDER BY embedding <=> %s LIMIT 5",
-        (np.array(query_vector),),  
+        "SELECT path, start_line, end_line, content FROM chunks WHERE repo_id = %s ORDER BY embedding <=> %s LIMIT 5",
+        (runtime.context.repo_id, np.array(query_vector)),
       ).fetchall()
   except Exception as e:
     return f"Error: semantic search unavailable ({e.__class__.__name__}). Try keyword_search or find_symbol instead."
-  
 
   if not rows:
-    return "No indexed code are found. Run index.py to index the project first"
-    
-    
-  results=[]
+    return "No indexed code found for this project. Index it first."
 
-  for row in rows:
-    path, start_line, end_line, content = row
+  results = []
+  for path, start_line, end_line, content in rows:
     results.append(f"{path}:{start_line}-{end_line}: {content[:600]}")
-
   return make_safe("\n\n---\n\n".join(results))
 
 
-@tool 
+def map_to_lines(node: dict, depth: int = 0) -> list[str]:
+  indent = "  " * depth
+  lines = [f"{indent}{node['name']} — {node.get('summary', '')}"]
+  for child in node.get("children", []):
+    lines.extend(map_to_lines(child, depth + 1))
+  return lines
+
+
+@tool
 def navigate_repo(runtime: ToolRuntime[Context]) -> str:
   """Show the project map: every folder and file with a one-line summary. Use this FIRST for broad or architecture questions, or when you don't know which file holds something."""
-  map_file = Path(runtime.context.repo_path).resolve() / "data" / "repo_map.json"
-  if not map_file.is_file():
-    return "No project map found. Run build_summarized_map first."
-  tree = json.loads(map_file.read_text(encoding="utf-8"))
+  path = map_file(runtime.context.repo_id)
+  if not path.is_file():
+    return "No project map found for this project. Build its map first."
+  tree = json.loads(path.read_text(encoding="utf-8"))
   return "\n".join(map_to_lines(tree))
+
 
 @tool
 def find_symbol(
   name: Annotated[str, "Exact function or class name, like 'safe_path' or 'CodeAnswer'"],
+  runtime: ToolRuntime[Context],
 ) -> str:
   """Find exactly where a function or class is defined (file and line). Use this when you know the name."""
+  repo_id = runtime.context.repo_id
   try:
     with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
       rows = conn.execute(
-        "SELECT kind, name, path, line FROM symbols WHERE name = %s",
-        (name,),
+        "SELECT kind, name, path, line FROM symbols WHERE repo_id = %s AND name = %s",
+        (repo_id, name),
       ).fetchall()
       if not rows:
         rows = conn.execute(
-          "SELECT kind, name, path, line FROM symbols WHERE name ILIKE %s LIMIT 10",
-          (f"%{name}%",),
+          "SELECT kind, name, path, line FROM symbols WHERE repo_id = %s AND name ILIKE %s LIMIT 10",
+          (repo_id, f"%{name}%"),
         ).fetchall()
   except Exception as e:
     return f"Error: symbol search unavailable ({e.__class__.__name__}). Try keyword_search or semantic_search instead."
@@ -204,30 +196,31 @@ def find_symbol(
     return f"No symbols found for '{name}' in the project. Try search_code or semantic_search instead."
   return "\n".join(f"{kind} {sym} → {path}:{line}" for kind, sym, path, line in rows)
 
-def keyword_rows(query: str, limit: int = 10) -> list[tuple]:
-    with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
 
-      return conn.execute(
+def keyword_rows(query: str, repo_id: str, limit: int = 10) -> list[tuple]:
+  with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
+    return conn.execute(
+      """
+      SELECT id, path, start_line, end_line, content
+      FROM chunks, to_tsquery('english', replace(plainto_tsquery('english', %s)::text, '&', '|')) AS q
+      WHERE repo_id = %s AND search_words @@ q
+      ORDER BY ts_rank(search_words, q) DESC
+      LIMIT %s
+      """,
+      (query, repo_id, limit),
+    ).fetchall()
 
-        """
-        SELECT id, path, start_line, end_line, content
-        FROM chunks, to_tsquery('english', replace(plainto_tsquery('english', %s)::text, '&', '|')) AS q
-        WHERE search_words @@ q
-        ORDER BY ts_rank(search_words, q) DESC
-        LIMIT %s
-        """,
-        (query, limit),
-        ).fetchall()
 
-def semantic_rows(query: str, limit: int = 10) -> list[tuple]:
-    query_vector = get_embedder().embed_query(query)
-    with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
-      register_vector(conn)
-      return conn.execute(
-        "SELECT id, path, start_line, end_line, content FROM chunks ORDER BY embedding <=> %s LIMIT %s",
-        (np.array(query_vector), limit),
-        ).fetchall()
-    
+def semantic_rows(query: str, repo_id: str, limit: int = 10) -> list[tuple]:
+  query_vector = get_embedder().embed_query(query)
+  with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
+    register_vector(conn)
+    return conn.execute(
+      "SELECT id, path, start_line, end_line, content FROM chunks WHERE repo_id = %s ORDER BY embedding <=> %s LIMIT %s",
+      (repo_id, np.array(query_vector), limit),
+    ).fetchall()
+
+
 def rrf_merge(list1: list[tuple], list2: list[tuple], k: int = 60) -> list[tuple]:
   scores = {}
   rows = {}
@@ -243,15 +236,17 @@ def rrf_merge(list1: list[tuple], list2: list[tuple], k: int = 60) -> list[tuple
 @tool
 def hybrid_search(
   query: Annotated[str, "What you're looking for, in plain words or exact terms"],
+  runtime: ToolRuntime[Context],
 ) -> str:
   """Best general code search: combines keyword and meaning search, so it finds code by exact words AND by what it does. Use this as your default search."""
+  repo_id = runtime.context.repo_id
   try:
-    keyword_list = keyword_rows(query)
+    keyword_list = keyword_rows(query, repo_id)
   except Exception:
     keyword_list = []
 
   try:
-    semantic_list = semantic_rows(query)
+    semantic_list = semantic_rows(query, repo_id)
   except Exception:
     semantic_list = []
 
@@ -268,6 +263,7 @@ def hybrid_search(
 @tool
 def keyword_search(
   query: Annotated[str, "Words to search for, like 'rate limit retry' or 'secret env file'"],
+  runtime: ToolRuntime[Context],
 ) -> str:
   """Find code chunks containing these WORDS, best matches first. Use this for exact terms, error codes, or config names."""
   try:
@@ -276,11 +272,11 @@ def keyword_search(
         """
         SELECT path, start_line, end_line, content
         FROM chunks, websearch_to_tsquery('english', %s) AS q
-        WHERE search_words @@ q
+        WHERE repo_id = %s AND search_words @@ q
         ORDER BY ts_rank(search_words, q) DESC
         LIMIT 5
         """,
-        (query,),
+        (query, runtime.context.repo_id),
       ).fetchall()
   except Exception as e:
     return f"Error: keyword search unavailable ({e.__class__.__name__}). Try semantic_search or search_code instead."
@@ -293,12 +289,5 @@ def keyword_search(
     results.append(f"{path} (lines {start_line}-{end_line}):\n{content[:600]}")
   return make_safe("\n\n---\n\n".join(results))
 
-def map_to_lines(node: dict, depth: int=0) -> list[str]:
-    indent = "  " * depth
-    lines = [f"{indent}{node['name']} — {node.get('summary', '')}"]
-    for child in node.get("children", []):
-      lines.extend(map_to_lines(child, depth + 1))
-
-    return lines
 
 ALL_TOOLS = [list_files, search_code, read_file, ask_user, semantic_search, navigate_repo, find_symbol, keyword_search, hybrid_search]

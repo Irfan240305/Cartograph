@@ -6,7 +6,7 @@ from langchain_groq import ChatGroq
 
 from cartograph.llm import get_fallback_models, get_primary_model
 
-EASY_JOBS = {"router", "judge"}
+EASY_JOBS = {"router", "judge", "summary"}
 
 USAGE = defaultdict(int)
 
@@ -36,7 +36,7 @@ def print_usage():
 def pick_primary(job: str):
   """Small fast model for easy jobs, the main model for everything else."""
   if job in EASY_JOBS:
-    return ChatGroq(model=os.getenv("GROQ_SMALL_MODEL", "openai/gpt-oss-20b"), temperature=0)
+    return ChatGroq(model=os.getenv("GROQ_SMALL_MODEL", "openai/gpt-oss-20b"), temperature=0, timeout=60)
   return get_primary_model()
 
 

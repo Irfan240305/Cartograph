@@ -42,6 +42,15 @@ from cartograph.gateway import UsageCounter, get_model
 
 from langchain.agents.middleware import ModelCallLimitMiddleware, ModelFallbackMiddleware, PIIMiddleware
 
+import os
+
+import psycopg
+from dotenv import load_dotenv
+from langgraph.checkpoint.postgres import PostgresSaver
+from psycopg.rows import dict_row
+
+load_dotenv(override=True)
+
 class State(TypedDict):
   messages: Annotated[list, add_messages]
   answer: CodeAnswer | None
@@ -51,8 +60,6 @@ class State(TypedDict):
   todos: list[str]
   notes: list[dict]
   blocked: bool
-
-
 
 def clean(path : str)->str:
   return Path(path).as_posix()
@@ -65,8 +72,6 @@ def files_read(messages) -> set[str]:
       if call["name"] == "read_file":
         read.add(clean(call["args"]["path"]))
   return set(read)
-
-
 
 def agent(state: State):
   messages=[SystemMessage(SYSTEM_PROMPT)] + state["messages"]
@@ -255,4 +260,10 @@ builder.add_edge("synthesizer", "output_guard")
 builder.add_edge("output_guard", END)
 
 
-graph = builder.compile(checkpointer=InMemorySaver())
+# graph = builder.compile(checkpointer=InMemorySaver())
+
+db = psycopg.connect(os.environ["DATABASE_URL"], autocommit=True, prepare_threshold=0, row_factory=dict_row) # open the shelf
+checkpointer = PostgresSaver(db)  # take the notebook
+checkpointer.setup()   # prepare its pages (first time only)
+
+graph = builder.compile(checkpointer=checkpointer)  # write chats in the notebook
