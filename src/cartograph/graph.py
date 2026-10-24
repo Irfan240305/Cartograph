@@ -239,10 +239,11 @@ builder.add_node("output_guard", output_guard)
 builder.add_node("input_guard", input_guard)
 builder.add_node("refuse", refuse)
 
+builder.add_node("overview", overview)
 
 builder.add_edge(START, "input_guard")
 builder.add_conditional_edges("input_guard", after_input, {"route": "route", END: END})
-builder.add_conditional_edges("route", after_route, {"planner": "planner", "agent": "agent", "refuse": "refuse"})
+builder.add_conditional_edges("route", after_route, {"overview": "overview", "agent": "agent", "refuse": "refuse"})
 builder.add_edge("refuse", END)
 
 
@@ -254,6 +255,7 @@ builder.add_conditional_edges("check", after_check, {"agent": "agent", END: "out
 
 
 # big questions: the deep path
+builder.add_edge("overview", "planner")
 builder.add_edge("planner", "explorer")
 builder.add_edge("explorer", "synthesizer")
 builder.add_edge("synthesizer", "output_guard")

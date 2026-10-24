@@ -1,6 +1,7 @@
-from cartograph.tools import semantic_search
+from types import SimpleNamespace
 
-result = semantic_search.invoke({"query": "how are secret files protected"})
+from cartograph.tools import Context, semantic_search
 
-for i, block in enumerate(result.split("\n\n---\n\n"), start=1):
-  print(i, block.splitlines()[0])
+runtime = SimpleNamespace(context=Context(repo_path=".", repo_id="Irfan240305/Cartograph"))
+
+print(semantic_search.func("how are secret files protected", runtime))

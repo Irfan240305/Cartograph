@@ -24,7 +24,13 @@ class Context:
 MAX_FILE_LINES = 300
 MAX_LIST_ENTRIES = 100
 MAX_SEARCH_MATCHES = 20
-IGNORED_DIRS = {".git", ".venv", "node_modules", "__pycache__", "target", "data"}
+
+IGNORED_DIRS = {
+  ".git", ".venv", "venv", "node_modules", "__pycache__", "target", "data",
+  "dist", "build", "out", "bin", "obj",
+  "vendor", "lib", "libs", "third_party", "generated",
+  ".idea", ".vscode", ".gradle", ".mvn",
+}
 
 
 def safe_path(repo_path: str, user_path: str) -> Path | None:
@@ -88,7 +94,7 @@ def list_files(
   shown = "\n".join(entries[:MAX_LIST_ENTRIES])
   if len(entries) > MAX_LIST_ENTRIES:
     shown += f"\n\n[Cut at {MAX_LIST_ENTRIES} entries of {len(entries)}]"
-  return shown
+  return make_safe(shown)
 
 
 @tool

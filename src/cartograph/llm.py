@@ -6,6 +6,10 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
+
+from langchain_huggingface import HuggingFaceEmbeddings
+from functools import lru_cache
+
 load_dotenv(override=True)
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1"
@@ -51,13 +55,15 @@ def get_all_models() -> dict[str, BaseChatModel]:
         "gemini": gemini_model(),
         "openrouter": openrouter_model()
     }
-
+@lru_cache(maxsize=1)
 def get_embedder():
-  """The model that turns text into meaning-numbers."""
-  return GoogleGenerativeAIEmbeddings(model=os.getenv("EMBEDDING_MODEL", "gemini-embedding-001"))
+  """The model that turns text into meaning-numbers. Runs locally — no API, no quota."""
+  return HuggingFaceEmbeddings(model_name=os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2"))
 
 def structured_model(form):
   """A model that fills `form`, with backup models if the main one fails."""
   primary = get_primary_model().with_structured_output(form)
   backups = [m.with_structured_output(form) for m in get_fallback_models()]
   return primary.with_fallbacks(backups)
+
+
