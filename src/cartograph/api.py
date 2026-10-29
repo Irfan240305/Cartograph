@@ -303,15 +303,17 @@ def ask_repository(request: Request, body: AskRequest):
     # Stream the graph's final answer
     def generate():
         sent = False
+        try:
 
-        for update in graph.stream(
-            initial_state,
-            context=context,
-            config=config,
-            stream_mode="updates",
-        ):
-            for node_output in update.values():
-                answer = node_output.get("answer")
+            for update in graph.stream(
+                initial_state,
+                context=context,
+                config=config,
+                stream_mode="updates",
+            ):
+                
+                for node_output in update.values():
+                    answer = node_output.get("answer")
 
                 if answer is not None and not sent:
                     yield answer.answer + "\n"
@@ -320,6 +322,13 @@ def ask_repository(request: Request, body: AskRequest):
                         for source in answer.sources:
                             yield f"\n[Source: {source}]\n"
                     sent = True
+        except Exception:
+            logger.exception("Answer generation failed for repo_id=%s", body.repo_id)
+            yield(
+                "\nSorry, the AI providers are unavailable right now. "
+                "Please try again in a minute. \n"
+            )
+
 
     return StreamingResponse(
         generate(),
