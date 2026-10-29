@@ -1,37 +1,73 @@
-import ast
+
 import os
+import logging
 from pathlib import Path
 
 import psycopg
 from dotenv import load_dotenv
+from tree_sitter_language_pack import get_parser
 
 from cartograph.indexer import code_files
+
+logger = logging.getLogger(__name__)
 
 load_dotenv(override=True)
 
 
-def extract_symbols(file: Path, repo: Path) -> list[dict]:
-  try:
-    tree = ast.parse(file.read_text(encoding="utf-8", errors="ignore"))
-  except SyntaxError:
-    return []
+PARSER_LANGUAGES = {
+    ".py": "python",
+    ".java": "java",
+    ".js": "javascript",
+    ".ts": "typescript",
+}
 
-  symbols = []
-  path = file.relative_to(repo).as_posix()
-  for node in ast.walk(tree):
-    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-      kind = "function"
-    elif isinstance(node, ast.ClassDef):
-      kind = "class"
-    else:
-      continue
-    symbols.append({
-      "name": node.name,
-      "kind": kind,
-      "path": path,
-      "line": node.lineno,
-    })
-  return symbols
+
+def extract_symbols(file: Path, repo: Path) -> list[dict]:
+    language = PARSER_LANGUAGES.get(file.suffix.lower())
+    if language is None:
+        return []
+
+    try:
+        source = file.read_bytes()
+        parser = get_parser(language)
+        tree = parser.parse(source)
+    except (OSError, ValueError) as exc:
+        logger.warning("Could not parse %s: %s", file, exc)
+        return []
+
+    symbols = []
+    relative_path = file.relative_to(repo).as_posix()
+
+    symbol_node_types = {
+        "function_definition": "function",
+        "class_definition": "class",
+        "method_declaration": "function",
+        "class_declaration": "class",
+        "function_declaration": "function",
+        "method_definition": "function",
+    }
+
+    def visit(node):
+        kind = symbol_node_types.get(node.type)
+
+        if kind:
+            name_node = node.child_by_field_name("name")
+            if name_node is not None:
+                name = source[name_node.start_byte:name_node.end_byte].decode(
+                    "utf-8", errors="replace"
+                )
+                symbols.append({
+                    "name": name,
+                    "kind": kind,
+                    "path": relative_path,
+                    "line": node.start_point.row + 1,
+                })
+
+        for child in node.children:
+            visit(child)
+
+    visit(tree.root_node)
+    return symbols
 
 
 def create_symbols_table(conn) -> None:
@@ -54,7 +90,7 @@ def index_symbols(repo_path: str, repo_id: str) -> int:
   repo = Path(repo_path).resolve()
   symbols = []
   for file in code_files(repo_path):
-    if file.suffix == ".py":
+    if file.suffix.lower() in PARSER_LANGUAGES:
       symbols.extend(extract_symbols(file, repo))
 
   with psycopg.connect(os.environ["DATABASE_URL"]) as conn:

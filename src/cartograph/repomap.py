@@ -8,6 +8,8 @@ from cartograph.tools import IGNORED_DIRS, is_secret
 
 from cartograph.gateway import get_model
 
+MAX_FILE_SUMMARIES = 300
+
 def file_node(file: Path, repo: Path) -> dict:
   return {
     "name": file.name,
@@ -64,14 +66,18 @@ def summarize_folder(node: dict) -> str:
   )
   return get_model("summary").invoke(prompt).content.strip()
 
-
-def add_summaries(node: dict, repo: Path) -> None:
+def add_summaries(node: dict, repo: Path, budget: dict) -> None:
   if node["type"] == "file":
-    print(f"Summarizing file: {node['path']}")
-    node["summary"] = summarize_file(repo / node["path"], repo)
+    if budget["remaining"] > 0:
+      print(f"Summarizing file: {node['path']}")
+      node["summary"] = summarize_file(repo / node["path"], repo)
+      budget["remaining"] -= 1
+    else:
+      node["summary"] = ""
     return
+
   for child in node["children"]:
-    add_summaries(child, repo)
+    add_summaries(child, repo, budget)
   node["summary"] = summarize_folder(node)
 
 
@@ -80,7 +86,11 @@ def build_summarized_map(repo_path: str, repo_id: str) -> dict:
   repo = Path(repo_path).resolve()
   tree = build_repo_tree(repo_path)
   print("Summarizing files and folders...")
-  add_summaries(tree, repo)
+
+  budget = {"remaining": MAX_FILE_SUMMARIES}
+  add_summaries(tree, repo, budget)
+  used = MAX_FILE_SUMMARIES - budget["remaining"]
+  print(f"Summarized {used} files (limit {MAX_FILE_SUMMARIES}).")
 
   path = map_file(repo_id)
   path.parent.mkdir(parents=True, exist_ok=True)

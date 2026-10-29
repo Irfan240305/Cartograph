@@ -2,7 +2,7 @@
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import FastAPI, BackgroundTasks, HTTPException
+from fastapi import FastAPI, BackgroundTasks, HTTPException, Request
 from pydantic import BaseModel
 from langchain_core.messages import HumanMessage
 
@@ -18,13 +18,44 @@ import psycopg
 
 from fastapi.middleware.cors import CORSMiddleware
 
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from fastapi.responses import JSONResponse
+
+from pydantic import BaseModel, Field
+
+import logging
+from cartograph.logging_config import configure_logging
+
+from cartograph.repos import clone_repo
+
+configure_logging()
+logger = logging.getLogger(__name__)
+
+limiter = Limiter(key_func=get_remote_address)
+
+
 app = FastAPI(title="Cartograph API")
+
+# Guest list for browsers: which frontend addresses may call this API.
+# Comes from a setting so we can add the deployed frontend without rebuilding.
+allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173").split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=allowed_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.state.limiter = limiter
+
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_handler(request, exc):
+    return JSONResponse(
+        status_code=429,
+        content={"detail": "Too many requests. Please wait and try again."}
+    )
 
 def ensure_jobs_table():
     with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
@@ -42,6 +73,21 @@ def ensure_jobs_table():
 
 
 ensure_jobs_table()
+
+def cleanup_stale_jobs():
+    with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
+        count = conn.execute(
+            """
+            UPDATE index_jobs
+            SET status = 'failed', error = 'Server restarted during indexing'
+            WHERE status IN ('queued', 'in_progress')
+            """,
+        ).rowcount
+        if count:
+            print(f"Marked {count} stale job(s) as failed")
+
+
+cleanup_stale_jobs()
 
 
 def save_job(job_id, url, status, repo_id=None, result=None, error=None):
@@ -88,6 +134,16 @@ def find_repo_status(repo_id):
         ).fetchone()
 
     return {"status": row[0]} if row else None
+
+def find_repo_url(repo_id):
+    with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
+        row = conn.execute(
+            "SELECT url FROM index_jobs WHERE repo_id = %s AND status = 'completed' LIMIT 1",
+            (repo_id,),
+        ).fetchone()
+
+    return row[0] if row else None
+
 # Request models
 class RepoRequest(BaseModel):
     url: str
@@ -95,7 +151,11 @@ class RepoRequest(BaseModel):
 
 class AskRequest(BaseModel):
     repo_id: str
-    question: str
+    question: str = Field(
+        min_length = 1,
+        max_length = 4000,
+        description = "The question to ask about the repository's code."
+    )
     thread_id: str = "default"
 
 
@@ -111,8 +171,9 @@ def index_repository(job_id: str, url: str):
     try:
         result = add_repo(url)
         save_job(job_id, url, "completed", repo_id=result["repo_id"], result=result)
-    except Exception as e:
-        save_job(job_id, url, "failed", error=str(e))
+    except Exception :
+        logger.exception("Repository indexing failed for job_id=%s", job_id)
+        save_job(job_id, url, "failed", error="Repository indexing failed. Check server logs.")
 
 
 # Health check
@@ -123,16 +184,18 @@ def health_check():
 
 # Submit a repository for indexing
 @app.post("/repos", status_code=202)
+@limiter.limit("3/hour")
 def add_repository(
-    request: RepoRequest,
+    request: Request,
+    body: RepoRequest,
     background_tasks: BackgroundTasks,
 ):
     job_id = str(uuid4())
-    save_job(job_id, request.url, "queued")
-    background_tasks.add_task(index_repository, job_id, request.url)
+    save_job(job_id, body.url, "queued")
+    background_tasks.add_task(index_repository, job_id, body.url)
     return {"job_id": job_id,
             "status": "queued",
-            "url": request.url,
+            "url": body.url,
             "message": "Repository indexing has been queued. Check the job status using the job_id."}
 
 
@@ -154,11 +217,13 @@ def get_repository_status(job_id: str):
 #     return None
 
 
+
 # Ask a question about an indexed repository
 @app.post("/ask")
-def ask_repository(request: AskRequest):
+@limiter.limit("2/minute")
+def ask_repository(request: Request, body: AskRequest):
     # Confirm that indexing completed successfully
-    status = find_repo_status(request.repo_id)
+    status = find_repo_status(body.repo_id)
 
     if status is None:
         raise HTTPException(
@@ -172,10 +237,11 @@ def ask_repository(request: AskRequest):
             detail=f"Repository indexing status: {status['status']}",
         )
 
-    # Locate the cloned repository directory
+    # Locate the cloned repository directory.
+    # IMPORTANT: repo_id comes from body, not request.
     repos_root = Path("data/repos").resolve()
     repo_path = (
-        repos_root / request.repo_id.replace("/", "__")
+        repos_root / body.repo_id.replace("/", "__")
     ).resolve()
 
     # Prevent paths from escaping the repositories directory
@@ -186,15 +252,33 @@ def ask_repository(request: AskRequest):
         )
 
     if not repo_path.is_dir():
-        raise HTTPException(
-            status_code=404,
-            detail="Repository directory not found",
-        )
+        url = find_repo_url(body.repo_id)
 
-    # Run the existing LangGraph workflow
+        if url is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Repository not found",
+            )
+
+        logger.info("Repository files missing, re-downloading %s", url)
+        try:
+            clone_repo(url)
+        except Exception as e:
+            logger.exception("Re-download failed for repo_id=%s", body.repo_id)
+            raise HTTPException(
+                status_code=503,
+                detail="Could not restore repository files. Please try again.",
+            )
+        if not repo_path.is_dir():
+            raise HTTPException(
+                status_code=404,
+                detail="Repository directory not found",
+            )
+
+    # Prepare the initial LangGraph state
     initial_state = {
         "messages": [
-            HumanMessage(content=request.question)
+            HumanMessage(content=body.question)
         ],
         "answer": None,
         "unread": [],
@@ -204,35 +288,44 @@ def ask_repository(request: AskRequest):
         "notes": [],
         "blocked": False,
     }
+
     config = {
         "configurable": {
-            "thread_id": request.thread_id,
+            "thread_id": body.thread_id,
         }
     }
 
-    context = Context(repo_path=str(repo_path), repo_id=request.repo_id)
+    context = Context(
+        repo_path=str(repo_path),
+        repo_id=body.repo_id,
+    )
 
     # Stream the graph's final answer
     def generate():
         sent = False
+
         for update in graph.stream(
             initial_state,
             context=context,
             config=config,
             stream_mode="updates",
         ):
-            
             for node_output in update.values():
                 answer = node_output.get("answer")
 
                 if answer is not None and not sent:
                     yield answer.answer + "\n"
+
+                    if answer.sources:
+                        for source in answer.sources:
+                            yield f"\n[Source: {source}]\n"
                     sent = True
 
     return StreamingResponse(
         generate(),
         media_type="text/plain; charset=utf-8",
     )
+
 
 @app.get("/threads/{thread_id}")
 def get_thread(thread_id: str):

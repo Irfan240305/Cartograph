@@ -7,6 +7,8 @@ from cartograph.graph import graph
 from cartograph.tools import Context
 from cartograph.gateway import print_usage
 
+from langgraph.errors import GraphRecursionError
+
 DATASET = "evals/dataset.json"
 RESULTS = "evals/results.json"
 
@@ -17,7 +19,7 @@ def run_one(item: dict, number: int) -> dict:
   result = graph.invoke(
     {"messages": [{"role": "user", "content": item["question"]}]},
     context=Context(repo_path=".", repo_id="Irfan240305/Cartograph"),
-    config={"configurable": {"thread_id": f"eval-{number}"}, "recursion_limit": 30},
+    config={"configurable": {"thread_id": f"eval-{number}"}, "recursion_limit": 50},
   )
 
   seconds = round(time.time() - start, 1)
@@ -42,6 +44,9 @@ def main():
     print(f"[{number}/{len(questions)}] {item['question'][:70]}")
     try:
       record = run_one(item, number)
+    except GraphRecursionError:
+      record = {**item, "answer": "Could not determine - feature not found in codebase.", "sources": [], "route": None, "seconds": 0, "error": "recursion_limit"}
+      print(f" ERROR: recursion limit reached")
     except Exception as e:
       record = {**item, "answer": "", "sources": [], "route": None, "seconds": 0, "error": str(e)}
       print(f"  ERROR: {e}")

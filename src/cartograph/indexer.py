@@ -16,6 +16,10 @@ import uuid
 
 import hashlib
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 load_dotenv(override=True)
 
 CODE_EXTENSIONS = {".py", ".java", ".md", ".toml", ".js", ".ts"}
@@ -34,6 +38,11 @@ def code_files(repo_path: str) -> list[Path]:
       continue
     if is_secret(file):
       continue
+
+    if file.stat().st_size > 1 * 1024 * 1024:  # 1 MB
+       logger.warning("Skipping oversized file: %s", relative)
+       continue
+
     files.append(file)
   return files
 
@@ -197,10 +206,11 @@ def index_repo(repo_path: str, repo_id: str) -> int:
         ) not in existing_keys
     ]
 
-    print(
-        f"Total: {len(chunks)} | "
-        f"Already saved: {len(existing_keys)} | "
-        f"Remaining: {len(pending)}"
+    logger.info(
+       "Chunk indexing status: total=%d, already_saved=%d, remaining=%d",
+       len(chunks),
+       len(existing_keys),
+       len(pending)
     )
 
     # Step 4: Embed and save only missing chunks.
@@ -232,9 +242,10 @@ def index_repo(repo_path: str, repo_id: str) -> int:
                 ],
             )
 
-        print(
-            f"Saved {min(i + len(batch), len(pending))}"
-            f"/{len(pending)} remaining chunks"
+        logger.info(
+           "Saved %d of %d pending chunks",
+           min(i + len(batch), len(pending)),
+           len(pending),
         )
 
     # Step 5: Activate the completed snapshot in one transaction.

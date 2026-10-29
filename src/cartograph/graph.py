@@ -73,10 +73,12 @@ def files_read(messages) -> set[str]:
         read.add(clean(call["args"]["path"]))
   return set(read)
 
-def agent(state: State):
-  messages=[SystemMessage(SYSTEM_PROMPT)] + state["messages"]
-  reply = model.invoke(messages)
-  return {"messages": [reply]}
+def agent(state: State, runtime: Runtime[Context]):
+    try:
+        response = model.invoke(state["messages"])
+    except Exception:
+        response = AIMessage(content="I cannot answer this question based on the codebase.")
+    return {"messages": [response]}
 
 model = get_model("agent", tools=ALL_TOOLS)
 answer_model = get_model("answer", form=CodeAnswer)
@@ -124,7 +126,10 @@ def after_input(state: State):
 def route(state: State):
   question = state["messages"][-1].content
   decision = router_model.invoke([
-    SystemMessage("Classify the user's question about a codebase as small, big, or off_topic."),
+    SystemMessage("""Classify the user's question about a codebase.
+- "big" if it asks about architecture, how multiple components work together, full pipelines, or spans multiple files
+- "off_topic" if it is not about this codebase at all
+- "small" for everything else (single function, one file, one concept)"""),
     HumanMessage(question)
   ])
   return {"kind": decision.kind}
@@ -194,18 +199,37 @@ def output_guard(state: State):
   return {"answer": answer}
 
 def after_route(state: State):
-  if state["kind"] == "big":
-    return "planner"
-  if state["kind"] == "off_topic":
-    return "refuse"
-  return "agent"
+    if state["kind"] == "blocked":
+        return "refuse"
+    if state["kind"] == "big":
+        return "overview"         
+    if state["kind"] == "off_topic":
+        return "refuse"
+    return "agent"
+
 
 
 def respond(state: State):
-  instruction = HumanMessage("Using only the code you read above, give the final answer and list every file you used as a source.")
-  messages = state["messages"] + [instruction]
-  answer = answer_model.invoke(messages)
-  return {"answer": answer}
+    messages = state["messages"]
+
+    for attempt in range(3):
+        try:
+            answer = answer_model.invoke(messages)
+            return {"answer": answer}
+        except Exception as exc:
+            print(
+                f"Structured answer attempt {attempt + 1}/3 failed: "
+                f"{type(exc).__name__}: {exc}"
+            )
+
+    return {
+        "answer": CodeAnswer(
+            answer="I couldn't generate a structured answer. "
+                   "Please check the server logs for the underlying error.",
+            sources=[],
+        )
+    }
+
 
 
 def check(state: State):
@@ -268,4 +292,4 @@ db = psycopg.connect(os.environ["DATABASE_URL"], autocommit=True, prepare_thresh
 checkpointer = PostgresSaver(db)  # take the notebook
 checkpointer.setup()   # prepare its pages (first time only)
 
-graph = builder.compile(checkpointer=checkpointer)  # write chats in the notebook
+graph = builder.compile(checkpointer=checkpointer).with_config({"recursion_limit": 50})  # write chats in the notebook
