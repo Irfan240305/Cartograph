@@ -39,13 +39,41 @@ export default function App() {
     }
 
     checkHealth();
-    const timer = setInterval(checkHealth, 10000);
 
     return () => {
       alive = false;
-      clearInterval(timer);
     };
   }, []);
+  
+  // Load already-indexed repos from the backend, so the list survives reloads
+  useEffect(() => {
+    async function loadRepos() {
+      try {
+        const response = await fetch(`${API}/repos`);
+        if (!response.ok) return;
+        const data = await response.json();
+
+        setRepos(current => {
+          const known = new Set(current.map(r => r.repoId));
+          const fromServer = data
+            .filter(r => !known.has(r.repo_id))
+            .map(r => ({
+              url: r.url,
+              jobId: r.repo_id,      // used only as a unique React key
+              repoId: r.repo_id,
+              status: "completed",
+            }));
+          return [...fromServer, ...current];
+        });
+      } catch {
+        // Backend asleep or offline: the list just stays empty
+      }
+    }
+
+    loadRepos();
+  }, []);
+
+
 
   useEffect(() => {
     const timer = setInterval(async () => {

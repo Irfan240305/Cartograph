@@ -36,7 +36,7 @@ def print_usage():
 def pick_primary(job: str):
   """Small fast model for easy jobs, the main model for everything else."""
   if job in EASY_JOBS:
-    return ChatGroq(model=os.getenv("GROQ_SMALL_MODEL", "openai/gpt-oss-20b"), temperature=0, timeout=60)
+    return ChatGroq(model=os.getenv("GROQ_SMALL_MODEL", "openai/gpt-oss-20b"), temperature=0, timeout=20)
   return get_primary_model()
 
 
@@ -53,5 +53,5 @@ def get_model(job: str, form=None, tools=None):
     primary = primary.with_structured_output(form, method="json_schema")
     backups = [b.with_structured_output(form) for b in backups]
 
-  primary = primary.with_retry(stop_after_attempt=3)
+  primary = primary.with_retry(stop_after_attempt=2)
   return primary.with_fallbacks(backups).with_config(callbacks=[UsageCounter(job)])

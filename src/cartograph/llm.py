@@ -18,12 +18,14 @@ def groq_model() -> BaseChatModel:
   """Create a groq chat model using setting from .env"""
   return ChatGroq(
     model=os.getenv("GROQ_MODEL", "openai/gpt-oss-120b"),
+    timeout=20,
     max_retries=2
   )
 def gemini_model() -> BaseChatModel:
   """Create a gemini chat model using setting from .env"""
   return ChatGoogleGenerativeAI(
     model=os.getenv("GEMINI_MODEL", "gemini-3.8-flash"),
+    timeout=20,
     max_retries=2
   )
 
@@ -33,6 +35,7 @@ def openrouter_model() -> BaseChatModel:
     model=os.environ["OPENROUTER_MODEL"],
     base_url=OPENROUTER_URL,
     max_retries=2,
+    timeout=20,
     api_key=os.environ["OPENROUTER_API_KEY"]
   )
 

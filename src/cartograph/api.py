@@ -197,7 +197,19 @@ def add_repository(
             "status": "queued",
             "url": body.url,
             "message": "Repository indexing has been queued. Check the job status using the job_id."}
-
+# List every repository that finished indexing (so any browser can see it)
+@app.get("/repos")
+def list_repositories():
+    with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
+        rows = conn.execute(
+            """
+            SELECT DISTINCT ON (repo_id) repo_id, url
+            FROM index_jobs
+            WHERE status = 'completed'
+            ORDER BY repo_id
+            """
+        ).fetchall()
+    return [{"repo_id": row[0], "url": row[1]} for row in rows]
 
 # Check indexing job status
 @app.get("/repos/{job_id}")
