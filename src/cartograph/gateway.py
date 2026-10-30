@@ -50,7 +50,7 @@ def get_model(job: str, form=None, tools=None):
     backups = [b.bind_tools(tools) for b in backups]
 
   if form:
-    primary = primary.with_structured_output(form, method="json_schema")
+    primary = primary.with_structured_output(form, method="function_calling")
     backups = [b.with_structured_output(form) for b in backups]
 
   primary = primary.with_retry(stop_after_attempt=2)

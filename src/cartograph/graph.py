@@ -220,9 +220,13 @@ def after_route(state: State):
     return "agent"
 
 
-
 def respond(state: State):
-    messages = state["messages"]
+    instruction = HumanMessage(
+        "Using only the code you read above, give the final answer "
+        "and list every file you used as a source. "
+        "Do NOT use markdown formatting like **bold** in your answer."
+    )
+    messages = state["messages"] + [instruction]
 
     for attempt in range(3):
         try:
@@ -241,7 +245,6 @@ def respond(state: State):
             sources=[],
         )
     }
-
 
 
 def check(state: State):
