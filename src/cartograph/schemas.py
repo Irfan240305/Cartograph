@@ -35,7 +35,7 @@ class Plan(BaseModel):
 
 class Note(BaseModel):
   """What one sub-agent found for one sub-question."""
-  summary: str = Field(description="Short answer to the sub-question, based only on code that was read")
+  summary: str = Field(description="Detailed answer to the sub-question as 5 to 10 bullet points: exact function and class names, the file each is in, and the steps in order. Based only on code that was read.")
   files_read: list[str] = Field(description="Every file path that was read with read_file to find this")
   
 MAPS_DIR = Path("data/maps")
