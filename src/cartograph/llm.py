@@ -18,6 +18,7 @@ def groq_model() -> BaseChatModel:
   """Create a groq chat model using setting from .env"""
   return ChatGroq(
     model=os.getenv("GROQ_MODEL", "openai/gpt-oss-120b"),
+    temperature=0,
     timeout=20,
     max_retries=2,
     max_tokens=4096,
