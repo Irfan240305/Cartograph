@@ -19,7 +19,8 @@ def groq_model() -> BaseChatModel:
   return ChatGroq(
     model=os.getenv("GROQ_MODEL", "openai/gpt-oss-120b"),
     timeout=20,
-    max_retries=2
+    max_retries=2,
+    max_tokens=4096,
   )
 def gemini_model() -> BaseChatModel:
   """Create a gemini chat model using setting from .env"""

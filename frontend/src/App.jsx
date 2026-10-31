@@ -3,11 +3,56 @@ import ReactMarkdown from "react-markdown";
 import "./App.css";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
+function getThreadId(repoId) {
+  return `web-${encodeURIComponent(repoId)}`;
+}
+
+function extractSources(rawText = "") {
+  const markerSources = [];
+  // Preferred format: explicit source metadata emitted by the backend.
+  const sourcePattern = /\[Source:\s*path=([\'\"])(.*?)\1\s+reason=([\'\"])([\s\S]*?)\3\s*\]/g;
+  let match;
+
+  while ((match = sourcePattern.exec(rawText)) !== null) {
+    const path = match[2].trim();
+    const reason = match[4].trim();
+    if (path) markerSources.push({ path, reason });
+  }
+
+  // Some /ask responses currently stream plain answer text without source
+  // metadata. Recover explicit file paths mentioned in that latest answer.
+  const text = rawText.replace(sourcePattern, "").trim();
+  const fallbackSources = [];
+  if (markerSources.length === 0) {
+    const filePattern = /(?:[\w@.-]+\/)*[\w@.-]+\.(?:py|pyi|js|jsx|ts|tsx|java|kt|go|rs|cpp|c|h|hpp|cs|rb|php|sql|json|ya?ml|toml|md|html|css|sh)(?=[:),.;\s`]|$)/gi;
+    const seen = new Set();
+    while ((match = filePattern.exec(text)) !== null) {
+      const path = match[0].replace(/[),.;]+$/, "");
+      if (!seen.has(path)) {
+        seen.add(path);
+        fallbackSources.push({
+          path,
+          reason: "Referenced in the latest Cartograph answer."
+        });
+      }
+    }
+  }
+
+  const sources = markerSources.length > 0 ? markerSources : fallbackSources;
+  const uniqueSources = [
+    ...new Map(sources.map(source => [source.path, source])).values(),
+  ];
+  return { text, sources: uniqueSources };
+}
+
+
 
 export default function App() {
   const [url, setUrl] = useState("");
   const [repos, setRepos] = useState([]);
-  const [selectedRepo, setSelectedRepo] = useState("");
+  const [selectedRepo, setSelectedRepo] = useState(
+    () => localStorage.getItem("cartograph:selectedRepo") || ""
+  );
   const [question, setQuestion] = useState("");
   const [messages, setMessages] = useState([]);
   const [asking, setAsking] = useState(false);
@@ -15,12 +60,20 @@ export default function App() {
   const [notice, setNotice] = useState("");
   const [apiOnline, setApiOnline] = useState(false);
   const [tab, setTab] = useState("Chat");
+  const [historyRepo, setHistoryRepo] = useState("");
 
   const readyRepos = repos.filter(
     r => r.status === "completed" && r.repoId
   );
 
   const activeRepo = readyRepos.find(r => r.repoId === selectedRepo);
+
+  // Show sources for the most recent assistant answer only. Keeping sources
+  // from older answers here makes the explorer look stale after a new question.
+  const latestAssistantMessage = [...messages]
+    .reverse()
+    .find(message => message.role === "assistant");
+  const sourceFiles = latestAssistantMessage?.sources || [];
 
   function repoName(url) {
     return url.replace(/\/+$/, "").split("/").slice(-2).join("/");
@@ -73,7 +126,60 @@ export default function App() {
     loadRepos();
   }, []);
 
+  // Persist the selected repository across browser refreshes.
+  useEffect(() => {
+    if (selectedRepo) {
+      localStorage.setItem("cartograph:selectedRepo", selectedRepo);
+    } else {
+      localStorage.removeItem("cartograph:selectedRepo");
+    }
+  }, [selectedRepo]);
 
+  // Restore only the conversation belonging to the selected repository.
+  useEffect(() => {
+    setHistoryRepo("");
+
+    if (!selectedRepo) {
+      setMessages([]);
+      setHistoryRepo("");
+      return;
+    }
+
+    const storageKey = `cartograph:chat:${selectedRepo}`;
+
+    try {
+      const saved = localStorage.getItem(storageKey);
+      const parsed = saved ? JSON.parse(saved) : [];
+      const restored = Array.isArray(parsed)
+        ? parsed.map((message, index) => ({
+            ...message,
+            id: message.id || `${selectedRepo}-${index}`,
+            loading: false,
+          }))
+        : [];
+
+      setMessages(restored);
+    } catch (error) {
+      console.error("Could not restore conversation:", error);
+      setMessages([]);
+    }
+
+    setHistoryRepo(selectedRepo);
+  }, [selectedRepo]);
+
+  // Save only after the selected repository's history has been restored.
+  useEffect(() => {
+    if (!selectedRepo || historyRepo !== selectedRepo) return;
+
+    try {
+      localStorage.setItem(
+        `cartograph:chat:${selectedRepo}`,
+        JSON.stringify(messages)
+      );
+    } catch (error) {
+      console.error("Could not save conversation:", error);
+    }
+  }, [messages, selectedRepo, historyRepo]);
 
   useEffect(() => {
     const timer = setInterval(async () => {
@@ -155,18 +261,27 @@ export default function App() {
     e?.preventDefault();
 
     const prompt = (suggestedQuestion || question).trim();
-    if (!prompt || !selectedRepo || asking) return;
+    const repoId = selectedRepo;
+
+    if (!prompt || !repoId || asking) return;
+
+    const threadId = getThreadId(repoId);
+    const userId = `${Date.now()}-user`;
+    const assistantId = `${Date.now()}-assistant`;
 
     setQuestion("");
     setAsking(true);
 
-    const userMessage = { role: "user", text: prompt };
-    const answerIndex = messages.length + 1;
-
     setMessages(current => [
       ...current,
-      userMessage,
-      { role: "assistant", text: "", loading: true },
+      { id: userId, role: "user", text: prompt },
+      {
+        id: assistantId,
+        role: "assistant",
+        text: "",
+        sources: [],
+        loading: true,
+      },
     ]);
 
     try {
@@ -174,9 +289,9 @@ export default function App() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          repo_id: selectedRepo,
+          repo_id: repoId,
           question: prompt,
-          thread_id: "web-1",
+          thread_id: threadId,
         }),
       });
 
@@ -197,39 +312,51 @@ export default function App() {
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
-      let answer = "";
+      let rawAnswer = "";
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        answer += decoder.decode(value, { stream: true });
+        rawAnswer += decoder.decode(value, { stream: true });
+        const parsed = extractSources(rawAnswer);
 
         setMessages(current =>
-          current.map((message, index) =>
-            index === answerIndex
-              ? { ...message, text: answer, loading: false }
+          current.map(message =>
+            message.id === assistantId
+              ? {
+                  ...message,
+                  text: parsed.text,
+                  sources: parsed.sources,
+                  loading: true,
+                }
               : message
           )
         );
       }
 
-      answer += decoder.decode();
+      rawAnswer += decoder.decode();
+      const finalResult = extractSources(rawAnswer);
 
       setMessages(current =>
-        current.map((message, index) =>
-          index === answerIndex
-            ? { ...message, text: answer, loading: false }
+        current.map(message =>
+          message.id === assistantId
+            ? {
+                ...message,
+                text: finalResult.text,
+                sources: finalResult.sources,
+                loading: false,
+              }
             : message
         )
       );
     } catch (error) {
       setMessages(current =>
-        current.map((message, index) =>
-          index === answerIndex
+        current.map(message =>
+          message.id === assistantId
             ? {
                 ...message,
-                text: `⚠️ ${error.message}`,
+                text: `⚠️ ${error.message || "Something went wrong."}`,
                 loading: false,
               }
             : message
@@ -252,10 +379,8 @@ export default function App() {
           <span className="topbar-label">PROJECT</span>
           <select
             value={selectedRepo}
-            onChange={e => {
-              setSelectedRepo(e.target.value);
-              setMessages([]);
-            }}
+            disabled={asking}
+            onChange={e => setSelectedRepo(e.target.value)}
           >
             <option value="">Select repository</option>
             {readyRepos.map(repo => (
@@ -304,10 +429,10 @@ export default function App() {
                 className={`sidebar-repo ${
                   selectedRepo === repo.repoId ? "selected" : ""
                 }`}
+                disabled={asking || repo.status !== "completed" || !repo.repoId}
                 onClick={() => {
-                  if (repo.status === "completed" && repo.repoId) {
+                  if (repo.status === "completed" && repo.repoId && !asking) {
                     setSelectedRepo(repo.repoId);
-                    setMessages([]);
                     setTab("Chat");
                   }
                 }}
@@ -369,9 +494,10 @@ export default function App() {
                     {repo.status === "completed" && repo.repoId && (
                       <button
                         className="open-project"
+                        disabled={asking}
                         onClick={() => {
+                          if (asking) return;
                           setSelectedRepo(repo.repoId);
-                          setMessages([]);
                           setTab("Chat");
                         }}
                       >
@@ -470,7 +596,7 @@ export default function App() {
                         {messages.map((message, index) => (
                           <article
                             className={`chat-message ${message.role}`}
-                            key={index}
+                            key={message.id || index}
                           >
                             <div className="message-avatar">
                               {message.role === "user" ? "Y" : "C"}
@@ -566,19 +692,41 @@ export default function App() {
                             className="context-prompt"
                             key={prompt}
                             disabled={asking}
-                            onClick={() => setQuestion(prompt)}
+                            onClick={() => {
+                              setQuestion(prompt);
+                              const textarea = document.querySelector(".message-composer textarea");
+                              textarea?.focus();
+                            }}
                           >
                             {prompt}<span>↗</span>
                           </button>
                         ))}
                       </div>
 
-                      <div className="context-note">
-                        <strong>Source explorer</strong>
-                        <p>
-                          File-level citations will appear here when the
-                          backend exposes source metadata with its answers.
-                        </p>
+                      <div className="context-note source-explorer">
+                        <div className="source-heading">
+                          <strong>Source explorer</strong>
+                          <span>{sourceFiles.length} files</span>
+                        </div>
+
+                        {sourceFiles.length > 0 ? (
+                          <div className="source-list">
+                            {sourceFiles.map(source => (
+                              <div className="source-item" key={source.path}>
+                                <div className="source-file">
+                                  <span>◇</span>
+                                  <strong>{source.path}</strong>
+                                </div>
+                                <p>{source.reason}</p>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p>
+                            Sources will appear here after Cartograph reads
+                            files to answer your question.
+                          </p>
+                        )}
                       </div>
                     </>
                   ) : (
