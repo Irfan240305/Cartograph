@@ -205,29 +205,27 @@ def planner(state: State, runtime: Runtime[Context]):
     plan = planner_model.invoke([
        
         SystemMessage(
-            "Create exactly 2 narrow sub-questions. Return exactly 2 items in "
-            "the todos list, never 3 or 4.\n\n"
+            "Create exactly 2 narrow sub-questions. Return exactly 2 items in the todos list, never 3 or 4.\n\n"
+            "For every question:\n"
 
-            "For ordinary questions:\n"
-            "- Name the exact real function or class and file path from the project map.\n"
-            "- Focus on one concrete implementation.\n"
+            "- Use only exact repository-relative file paths and real functions/classes from the project map.\n"
+            "- Never invent symbols or files.\n"
+            "- Each todo must focus on one concrete implementation area.\n"
             "- Use find_symbol and read_file to inspect the code.\n\n"
 
             "For architecture, API-to-answer, graph-flow, or pipeline questions:\n"
-            "- Return exactly these two stages and no other stages.\n"
-            "  1. Inspect src/cartograph/api.py and src/cartograph/graph.py. "
-            "Explain the API request entry point, graph invocation, routing, streaming, "
+            "- Return exactly these two stages and no other stages:\n"
+            "  1. Inspect the project's actual request/API entry point and graph or orchestration files. "
+            "Explain request entry, invocation, routing, execution flow, streaming if present, and final output.\n"
             "and final output.\n"
-            "  2. Inspect src/cartograph/agent.py and src/cartograph/tools.py. "
-            "Explain agent construction, available tools, tool calls, and how findings "
-            "reach the answer.\n"
-            "- Use the exact repository-relative paths beginning with src/cartograph/.\n"
-            "- Use real symbols such as graph, input_guard, route, build_agent, ask, "
-            "and ALL_TOOLS when they exist in those files.\n"
-            "- Do not use bare filenames such as api.py or graph.py.\n"
-            "- Do not inspect ask_graph.py, gateway.py, llm.py, middleware.py, indexer.py, "
-            "or schemas.py for this question.\n\n"
-
+            "  2. Inspect the project's actual agent, service, tool, or data-access files. "
+            "Explain construction, available operations, calls, and how findings reach the answer.\n"
+            "- Choose the files and symbols from the current project map.\n"
+            "- Do not assume Python, Cartograph, or any particular directory structure.\n"
+            "- Do not use files merely because they exist; select only files relevant to the user's question.\n\n"
+            "For ordinary questions:\n"
+            "- Name the exact real function or class and file path from the project map.\n"
+            "- Focus on one concrete implementation.\n\n"
             "Never invent symbols or files. Return exactly two todos."
         ),
         HumanMessage(
