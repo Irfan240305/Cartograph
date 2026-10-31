@@ -51,7 +51,7 @@ def get_model(job: str, form=None, tools=None):
 
   if form:
     primary = primary.with_structured_output(form, method="function_calling")
-    backups = [b.with_structured_output(form) for b in backups]
+    backups = [b.with_structured_output(form, method="function_calling") for b in backups]
 
   primary = primary.with_retry(stop_after_attempt=2)
   return primary.with_fallbacks(backups).with_config(callbacks=[UsageCounter(job)])

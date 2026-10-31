@@ -97,31 +97,37 @@ def score_files(results: list[dict]) -> dict | None:
     )
     return metrics
 
-def judge_answer(record: dict) -> float:
+def judge_answer(record: dict) -> float | None:
     key_facts = record.get("key_facts", [])
     if not key_facts:
         return 0.0
 
     facts = "\n".join(f"- {fact}" for fact in key_facts)
-    try:
-        verdict = judge.invoke(
-            "You are grading an answer about a codebase.\n"
-            f"Question: {record['question']}\n"
-            f"Answer: {record.get('answer', '')}\n\n"
-            "For EACH fact below, decide if the answer covers the SAME MEANING, "
-            "even if completely different words, phrasing, or level of detail is used. "
-            "For example:\n"
-            "- 'filters by repo_id' and 'scopes queries using the repository identifier' = SAME\n"
-            "- 'uses Reciprocal Rank Fusion' and 'merges results with RRF' = SAME\n"
-            "- 'defined in tools.py' and 'located in the tools module' = SAME\n"
-            "Be generous — if the answer conveys the idea, mark it present.\n\n"
-            f"Facts:\n{facts}"
-        )
-        present = sum(check.present for check in verdict.checks)
-        return min(present / len(key_facts), 1.0)
-    except Exception as e:
-        print(f"  JUDGE ERROR: {e}")
-        return 0.0
+    prompt = (
+        "You are grading an answer about a codebase.\n"
+        f"Question: {record['question']}\n"
+        f"Answer: {record.get('answer', '')}\n\n"
+        "For EACH fact below, decide if the answer covers the SAME MEANING, "
+        "even if completely different words, phrasing, or level of detail is used. "
+        "For example:\n"
+        "- 'filters by repo_id' and 'scopes queries using the repository identifier' = SAME\n"
+        "- 'uses Reciprocal Rank Fusion' and 'merges results with RRF' = SAME\n"
+        "- 'defined in tools.py' and 'located in the tools module' = SAME\n"
+        "Be generous — if the answer conveys the idea, mark it present.\n\n"
+        f"Facts:\n{facts}"
+    )
+
+    # The judge model sometimes slips (e.g. calls 'verdict' instead of 'Verdict').
+    # Retry a few times before giving up, so a grader glitch isn't scored as 0%.
+    for attempt in range(3):
+        try:
+            verdict = judge.invoke(prompt)
+            present = sum(check.present for check in verdict.checks)
+            return min(present / len(key_facts), 1.0)
+        except Exception as e:
+            print(f"  JUDGE ERROR (attempt {attempt + 1}/3): {e}")
+
+    return None
 
 
 def score_answers(results: list[dict]) -> float | None:
@@ -140,15 +146,25 @@ def score_answers(results: list[dict]) -> float | None:
     fully_correct = 0
 
     print("ANSWER CHECK (LLM judge)")
+    judge_failures = 0
     for record in scored:
         score = judge_answer(record)
+        if score is None:
+            judge_failures += 1
+            print(f"  n/a  {record['question'][:60]} (judge failed)")
+            continue
         scores.append(score)
         fully_correct += score == 1.0
         print(f"  {score:.0%}  {record['question'][:60]}")
+    if not scores:
+        print("Average fact coverage: n/a")
+        print(f"Judge failures: {judge_failures}/{len(scored)}\n")
+        return None
 
     average = statistics.mean(scores)
     print(f"Average fact coverage: {average:.1%}")
-    print(f"Fully correct answers: {fully_correct}/{len(scored)}\n")
+    print(f"Fully correct answers: {fully_correct}/{len(scored)} "
+          f"(judge failures: {judge_failures})\n")
     return average
 
 

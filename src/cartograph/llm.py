@@ -44,6 +44,7 @@ def get_primary_model() -> BaseChatModel:
   return groq_model()
 
 
+
 def get_fallback_models() -> list[BaseChatModel]:
     """The fallback models cartograph uses if the primary model fails"""
     return [

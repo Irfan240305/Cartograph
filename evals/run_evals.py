@@ -12,7 +12,32 @@ from langgraph.errors import GraphRecursionError
 DATASET = "evals/dataset.json"
 RESULTS = "evals/results.json"
 
+def is_rate_limit_error(error: Exception) -> bool:
+  message = str(error).lower()
 
+  return any(marker in message for marker in (
+    "rate limit",
+    "rate_limit",
+    "too many requests",
+    "resource_exhausted",
+    "quota exceeded",
+    "429",
+  ))
+def run_with_retry(item: dict, number: int) -> dict:
+  try:
+    return run_one(item, number)
+
+  except GraphRecursionError:
+    raise
+
+  except Exception as error:
+    if not is_rate_limit_error(error):
+      raise
+
+    print("  Rate limit encountered; waiting 60 seconds before retry")
+    time.sleep(60)
+
+    return run_one(item, number)
 def run_one(item: dict, number: int) -> dict:
   start = time.time()
 
@@ -43,7 +68,7 @@ def main():
   for number, item in enumerate(questions, start=1):
     print(f"[{number}/{len(questions)}] {item['question'][:70]}")
     try:
-      record = run_one(item, number)
+      record = run_with_retry(item, number)
     except GraphRecursionError:
       record = {**item, "answer": "Could not determine - feature not found in codebase.", "sources": [], "route": None, "seconds": 0, "error": "recursion_limit"}
       print(f" ERROR: recursion limit reached")

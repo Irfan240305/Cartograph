@@ -28,8 +28,9 @@ class Route(BaseModel):
 class Plan(BaseModel):
   """A short to-do list that breaks a big question into smaller ones."""
   todos: list[str] = Field(
-    description="2 to 4 focused sub-questions that together answer the big question",
-    max_length=4,
+    description="Exactly 2 focused sub-questions that together answer the big question",
+    min_length=2,
+    max_length=2,
   )
 
 

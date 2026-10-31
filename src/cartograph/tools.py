@@ -21,7 +21,7 @@ class Context:
   repo_id: str
 
 
-MAX_FILE_LINES = 300
+MAX_FILE_LINES = 600
 MAX_LIST_ENTRIES = 100
 MAX_SEARCH_MATCHES = 20
 
@@ -46,28 +46,55 @@ def is_secret(path: Path) -> bool:
   """True if the file is a secret file, otherwise False."""
   return path.name.startswith(".env") and path.name != ".env.example"
 
-
 @tool
 def read_file(
-  path: Annotated[str, "File path inside the project, like 'src/App.java'"],
+  path: Annotated[str, "File path inside the project"],
   runtime: ToolRuntime[Context],
+  start_line: Annotated[
+    int | None,
+    "First line to read, 1-based. Omit to start at line 1.",
+  ] = None,
+  end_line: Annotated[
+    int | None,
+    "Last line to read, inclusive. Omit to read through the end.",
+  ] = None,
 ) -> str:
-  """Read a file from the project. Use this after search_code or list_files to see the actual code before answering."""
+  """Read a file or a selected inclusive line range from the project."""
+
   file = safe_path(runtime.context.repo_path, path)
+
   if file is None:
     return f"Error: The file '{path}' is outside the project."
+
   if is_secret(file):
     return f"Error: The file '{path}' is a secret file and cannot be read."
+
   if not file.is_file():
-    return f"Error: '{path}' is not a file. Use list_files or search_code to find the correct path."
+    return (
+      f"Error: '{path}' is not a file. "
+      "Use list_files or search_code to find the correct path."
+    )
 
-  lines = file.read_text(encoding="utf-8", errors="ignore").splitlines()
-  shown = "\n".join(lines[:MAX_FILE_LINES])
-  if len(lines) > MAX_FILE_LINES:
-    shown += f"\n\n[Cut at line {MAX_FILE_LINES} of {len(lines)}]"
+  lines = file.read_text(
+    encoding="utf-8",
+    errors="ignore",
+  ).splitlines()
+
+  first = max((start_line or 1) - 1, 0)
+  last = min(end_line or len(lines), len(lines))
+
+  if first >= last:
+    return (
+      f"Error: Invalid line range {start_line}-{end_line} "
+      f"for '{path}'."
+    )
+
+  shown = "\n".join(
+    f"{number}: {line}"
+    for number, line in enumerate(lines[first:last], first + 1)
+  )
+
   return make_safe(shown)
-
-
 @tool
 def list_files(
   runtime: ToolRuntime[Context],
