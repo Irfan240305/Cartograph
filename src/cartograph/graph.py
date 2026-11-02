@@ -84,7 +84,7 @@ def filter_sources(answer: CodeAnswer, read: set[str]) -> CodeAnswer:
 
 def agent(state: State, runtime: Runtime[Context]):
     try:
-        response = model.invoke(state["messages"])
+        response = model.invoke([SystemMessage(SYSTEM_PROMPT)]+state["messages"])
     except Exception:
         response = AIMessage(content="I cannot answer this question based on the codebase.")
     return {"messages": [response]}
