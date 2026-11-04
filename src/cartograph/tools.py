@@ -15,6 +15,7 @@ from cartograph.llm import get_embedder
 
 from cartograph.repos import map_file
 
+import re
 @dataclass
 class Context:
   repo_path: str
@@ -24,6 +25,12 @@ class Context:
 MAX_FILE_LINES = 600
 MAX_LIST_ENTRIES = 100
 MAX_SEARCH_MATCHES = 20
+
+def split_identifiers(text: str) -> str:
+  """Add the parts of camelCase names: 'CodeAnswer' -> 'CodeAnswer Code Answer'."""
+  spaced = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", text)
+  return text if spaced == text else f"{text} {spaced}"
+
 
 IGNORED_DIRS = {
   ".git", ".venv", "venv", "node_modules", "__pycache__", "target", "data",
@@ -45,6 +52,10 @@ def safe_path(repo_path: str, user_path: str) -> Path | None:
 def is_secret(path: Path) -> bool:
   """True if the file is a secret file, otherwise False."""
   return path.name.startswith(".env") and path.name != ".env.example"
+
+def is_eval_data(path: Path) -> bool:
+  """True for the eval answer key and results, which the agent must never read."""
+  return path.name in {"dataset.json", "results.json"} and path.parent.name == "evals"
 
 @tool
 def read_file(
@@ -68,6 +79,9 @@ def read_file(
 
   if is_secret(file):
     return f"Error: The file '{path}' is a secret file and cannot be read."
+
+  if is_eval_data(file):
+    return f"Error: The file '{path}' cannot be read."
 
   if not file.is_file():
     return (
@@ -113,6 +127,8 @@ def list_files(
   for item in sorted(base.iterdir()):
     if item.name in IGNORED_DIRS:
       continue
+    if is_eval_data(item):
+      continue
     relative = item.relative_to(repo).as_posix()
     entries.append(relative + "/" if item.is_dir() else relative)
 
@@ -139,6 +155,8 @@ def search_code(
     if not file.is_file():
       continue
     if is_secret(file):
+      continue
+    if is_eval_data(file):
       continue
     lines = file.read_text(encoding="utf-8", errors="ignore").splitlines()
     for number, line in enumerate(lines, start=1):
@@ -182,7 +200,7 @@ def semantic_search(
 
   results = []
   for path, start_line, end_line, content in rows:
-    results.append(f"{path}:{start_line}-{end_line}: {content[:600]}")
+    results.append(f"{path}:{start_line}-{end_line}: {content}")
   return make_safe("\n\n---\n\n".join(results))
 
 
@@ -240,7 +258,7 @@ def keyword_rows(query: str, repo_id: str, limit: int = 10) -> list[tuple]:
       ORDER BY ts_rank(search_words, q) DESC
       LIMIT %s
       """,
-      (query, repo_id, limit),
+      (split_identifiers(query), repo_id, limit),
     ).fetchall()
 
 
@@ -286,10 +304,10 @@ def hybrid_search(
   if not keyword_list and not semantic_list:
     return "Error: search unavailable or nothing indexed. Try search_code or list_files instead."
 
-  merged = rrf_merge(keyword_list, semantic_list)[:5]
+  merged = rrf_merge(keyword_list, semantic_list)[:8]
   results = []
   for _id, path, start_line, end_line, content in merged:
-    results.append(f"{path} (lines {start_line}-{end_line}):\n{content[:600]}")
+    results.append(f"{path} (lines {start_line}-{end_line}):\n{content}")
   return make_safe("\n\n---\n\n".join(results))
 
 
@@ -319,7 +337,7 @@ def keyword_search(
 
   results = []
   for path, start_line, end_line, content in rows:
-    results.append(f"{path} (lines {start_line}-{end_line}):\n{content[:600]}")
+    results.append(f"{path} (lines {start_line}-{end_line}):\n{content}")
   return make_safe("\n\n---\n\n".join(results))
 
 

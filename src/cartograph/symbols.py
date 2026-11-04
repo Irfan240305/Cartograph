@@ -9,6 +9,8 @@ from tree_sitter_language_pack import get_parser
 
 from cartograph.indexer import code_files
 
+import ast
+
 logger = logging.getLogger(__name__)
 
 load_dotenv(override=True)
@@ -20,9 +22,29 @@ PARSER_LANGUAGES = {
     ".js": "javascript",
     ".ts": "typescript",
 }
+def extract_python_symbols(file: Path, repo: Path) -> list[dict]:
+    """Python files: use the built-in ast parser (no native library, very reliable)."""
+    try:
+        tree = ast.parse(file.read_text(encoding="utf-8", errors="replace"))
+    except SyntaxError as exc:
+        logger.warning("Could not parse %s: %s", file, exc)
+        return []
 
+    relative_path = file.relative_to(repo).as_posix()
+    symbols = []
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            kind = "function"
+        elif isinstance(node, ast.ClassDef):
+            kind = "class"
+        else:
+            continue
+        symbols.append({"name": node.name, "kind": kind, "path": relative_path, "line": node.lineno})
+    return symbols
 
 def extract_symbols(file: Path, repo: Path) -> list[dict]:
+    if file.suffix.lower() == ".py":
+        return extract_python_symbols(file, repo)
     language = PARSER_LANGUAGES.get(file.suffix.lower())
     if language is None:
         return []

@@ -27,10 +27,11 @@ def groq_tool_model() -> BaseChatModel:
   """Groq model for tool-calling jobs (agent, explorers)."""
   return ChatGroq(
     model=os.getenv("GROQ_TOOL_MODEL", "openai/gpt-oss-120b"),
-    temperature=0,
+    temperature=0.3,
     timeout=40,
     max_retries=2,
     max_tokens=8192,
+    reasoning_effort="low",
   )
 def gemini_model() -> BaseChatModel:
   """Create a gemini chat model using setting from .env"""

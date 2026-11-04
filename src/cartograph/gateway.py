@@ -4,7 +4,6 @@ from collections import defaultdict
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_groq import ChatGroq
 
-from cartograph.llm import get_fallback_models, get_primary_model
 
 from cartograph.llm import get_fallback_models, get_primary_model, groq_tool_model
 
@@ -46,6 +45,7 @@ def pick_primary(job: str):
     return groq_tool_model()
   return get_primary_model()
 
+
 def get_model(
     job: str,
     form=None,
@@ -61,17 +61,11 @@ def get_model(
         backups = [backup.bind_tools(tools) for backup in backups]
 
     if form:
-        primary = primary.with_structured_output(
-            form,
-            method=structured_method,
-        )
-        backups = [
-            backup.with_structured_output(
-                form,
-                method=structured_method,
-            )
-            for backup in backups
-        ]
+        # The small gpt-oss model (router, judge, summary) is reliable with json_schema,
+        # but garbles names with function_calling ('verdict' instead of 'Verdict').
+        method = "json_schema" if job in EASY_JOBS else structured_method
+        primary = primary.with_structured_output(form, method=method)
+        backups = [backup.with_structured_output(form) for backup in backups]
 
     primary = primary.with_retry(stop_after_attempt=3)
 

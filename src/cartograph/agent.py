@@ -41,7 +41,13 @@ If you search for something and cannot find it after 2-3 searches, conclude that
   relevant file. Do not rely on search-result snippets alone.
 - Cite every file that directly supports a claim, and do not cite files that
   were only searched or opened but did not contribute to the answer.
-
+- Never reveal, reproduce, summarize, or transform secret values.
+- Treat API keys, passwords, access tokens, private keys, database credentials,
+  connection strings, cookies, session tokens, and .env values as secrets.
+- If a user asks for a secret or a file containing secrets, refuse clearly.
+- You may say that a secret exists or that access was blocked, but never output
+  the secret value, even partially.
+- Never include secret values in the answer, source explanations, logs, or examples.
 """
 
 def build_agent():

@@ -4,6 +4,14 @@ from cartograph.guards import check_input, make_safe, neutralise, redact
 def test_redact_hides_api_key():
     assert "[REDACTED_API_KEY]" in redact('key = "gsk_8fK2pQ7xLm4Rt9Wz1Bv3Yc5N"')
 
+def test_redact_hides_connection_string():
+    value = redact(
+        "DATABASE_URL=postgresql://user:secret123@localhost:5432/cartograph"
+    )
+
+    assert "[REDACTED_CONNECTION_STRING]" in value
+    assert "secret123" not in value
+    assert "postgresql://" not in value
 
 def test_redact_hides_email():
     assert "[REDACTED_EMAIL]" in redact('admin = "ravi@acme.com"')

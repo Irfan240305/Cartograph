@@ -1,11 +1,19 @@
 import re
 
 
-
 PATTERNS = {
-  "API_KEY": re.compile(r"\b(?:gsk_|sk-|AIza|AKIA)[A-Za-z0-9_\-]{16,}"),
-  "PASSWORD": re.compile(r"(?i)(password|passwd|pwd)\s*[:=]\s*['\"][^'\"]+['\"]"),
-  "EMAIL": re.compile(r"[^@\s'\"<>]+@[^@\s'\"<>]+\.[a-zA-Z]{2,}"),
+  "CONNECTION_STRING": re.compile(
+    r'''(?i)\b(?:postgres(?:ql)?|mysql|mariadb|mongodb(?:\+srv)?|redis|amqp)://[^\s'"<>]+'''
+  ),
+  "API_KEY": re.compile(
+    r"\b(?:gsk_|sk-|AIza|AKIA)[A-Za-z0-9_-]{16,}"
+  ),
+  "PASSWORD": re.compile(
+    r'''(?i)(password|passwd|pwd)\s*[:=]\s*['"][^'"]+['"]'''
+  ),
+  "EMAIL": re.compile(
+    r'''[^@\s'"<>]+@[^@\s'"<>]+\.[a-zA-Z]{2,}'''
+  ),
   "IP": re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}\b"),
 }
 

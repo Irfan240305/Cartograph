@@ -8,7 +8,8 @@ from pydantic import BaseModel, Field
 from cartograph.gateway import get_model, print_usage
 
 
-RESULTS = "evals/results.json"
+import sys
+RESULTS = sys.argv[1] if len(sys.argv) > 1 else "evals/results.json"
 
 class FactCheck(BaseModel):
     fact: str
@@ -73,6 +74,7 @@ def score_files(results: list[dict]) -> dict | None:
     print("FILE CHECK (citation-based)")
     for record in checked:
         precision, recall = file_metrics(record)
+        record["_precision"], record["_recall"] = precision, recall
         precisions.append(precision)
         recalls.append(recall)
         strict_hits += file_hit(record)
@@ -112,7 +114,7 @@ def judge_answer(record: dict) -> float | None:
         "- 'filters by repo_id' and 'scopes queries using the repository identifier' = SAME\n"
         "- 'uses Reciprocal Rank Fusion' and 'merges results with RRF' = SAME\n"
         "- 'defined in tools.py' and 'located in the tools module' = SAME\n"
-        "Be generous — if the answer conveys the idea, mark it present.\n\n"
+        "Mark a fact present only if the answer clearly states it (different wording is fine).\n\n"
         f"Facts:\n{facts}"
     )
 
@@ -135,6 +137,7 @@ def score_answers(results: list[dict]) -> float | None:
         if r.get("key_facts")
         and r.get("answer")
         and not r.get("error")
+        and r.get("type") not in ("attack", "off_topic")
     ]
 
     if not scored:
@@ -153,6 +156,7 @@ def score_answers(results: list[dict]) -> float | None:
             print(f"  n/a  {record['question'][:60]} (judge failed)")
             continue
         scores.append(score)
+        record["_facts"] = score
         fully_correct += score == 1.0
         print(f"  {score:.0%}  {record['question'][:60]}")
     if not scores:
@@ -260,7 +264,21 @@ def latency_metrics(results: list[dict]) -> dict:
         "p50": percentile(times, 50),
         "p95": percentile(times, 95),
     }
+def score_by_type(results: list[dict]) -> None:
+    """Show precision, recall and fact coverage separately for each question type."""
+    def average(values):
+        return f"{statistics.mean(values):.0%}" if values else "-"
 
+    types = sorted({r["type"] for r in results})
+    print("SCORES BY QUESTION TYPE")
+    print(f"  {'type':<13} {'n':>3} {'precision':>10} {'recall':>7} {'facts':>6}")
+    for kind in types:
+        group = [r for r in results if r["type"] == kind]
+        precision = [r["_precision"] for r in group if "_precision" in r]
+        recall = [r["_recall"] for r in group if "_recall" in r]
+        facts = [r["_facts"] for r in group if "_facts" in r]
+        print(f"  {kind:<13} {len(group):>3} {average(precision):>10} {average(recall):>7} {average(facts):>6}")
+    print()
 
 if __name__ == "__main__":
     results = load_results()
@@ -269,6 +287,7 @@ if __name__ == "__main__":
     answer_acc = score_answers(results)
     routing_acc = score_routing(results)
     guard_rate = score_guardrails(results)
+    score_by_type(results)
     latency = latency_metrics(results)
     errors = sum(bool(r.get("error")) for r in results)
 

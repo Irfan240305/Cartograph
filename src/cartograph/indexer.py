@@ -53,14 +53,14 @@ LANGUAGES = {
   ".ts": Language.TS,
   ".md": Language.MARKDOWN,
 }
-CHUNK_SIZE = 1500
+CHUNK_SIZE = 800
 
 
 def make_splitter(suffix: str):
   language = LANGUAGES.get(suffix)
   if language:
     return RecursiveCharacterTextSplitter.from_language(
-      language, chunk_size=CHUNK_SIZE, chunk_overlap=200, add_start_index=True
+      language, chunk_size=CHUNK_SIZE, chunk_overlap=100, add_start_index=True
     )
   return RecursiveCharacterTextSplitter(chunk_size=CHUNK_SIZE, chunk_overlap=200, add_start_index=True)
 
@@ -143,7 +143,7 @@ def create_table(conn, dimensions: int):
       end_line INT NOT NULL,
       content TEXT NOT NULL,
       embedding VECTOR({dimensions}) NOT NULL,
-      search_words TSVECTOR GENERATED ALWAYS AS (to_tsvector('english', content)) STORED
+      search_words TSVECTOR GENERATED ALWAYS AS ('english', content || ' ' || regexp_replace(content, '([a-z0-9])([A-Z])', '\\1 \\2', 'g')) STORED
     )
   """)
   conn.execute("CREATE INDEX IF NOT EXISTS chunks_words ON chunks USING GIN (search_words)")

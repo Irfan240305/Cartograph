@@ -2,6 +2,8 @@ from pathlib import Path
 
 from cartograph.tools import is_secret, rrf_merge, safe_path
 
+from pathlib import Path
+from cartograph.tools import is_eval_data
 
 def test_safe_path_allows_inside():
     assert safe_path(".", "src/cartograph/tools.py") is not None
@@ -30,3 +32,9 @@ def test_rrf_merge_combines_lists():
     ids = [row[0] for row in merged]
     assert 2 == ids[0]          # appears in both, ranks first
     assert len(merged) == 3     # no duplicates
+
+def test_eval_answer_key_is_hidden():
+    assert is_eval_data(Path("evals/dataset.json"))
+    assert is_eval_data(Path("evals/results.json"))
+    assert not is_eval_data(Path("evals/score.py"))
+    assert not is_eval_data(Path("data/dataset.json"))

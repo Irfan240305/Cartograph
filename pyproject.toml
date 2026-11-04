@@ -51,3 +51,8 @@ explicit = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+markers = [
+    "unit: deterministic tests with no network, database, or model provider",
+    "integration: tests requiring repositories, PostgreSQL, or application wiring",
+    "ai: tests requiring an LLM provider or external model service",
+]

@@ -59,6 +59,8 @@ from langgraph.types import interrupt
 
 from cartograph.answers import SOURCES_INSTRUCTION, parse_answer, text_of
 
+from langchain_core.messages import AIMessage, ToolMessage
+
 load_dotenv(override=True)
 
 class State(TypedDict):
@@ -210,20 +212,21 @@ def after_input(state: State):
     return END
   return "route"
 
-
 def route(state: State):
   question = state["question"]
   user_questions = [
-     m.content for m in state["messages"]
-     if isinstance(m, HumanMessage) and getattr(m, "name", None) not in NOTE_NAMES
+    m.content for m in state["messages"]
+    if isinstance(m, HumanMessage) and getattr(m, "name", None) not in NOTE_NAMES
   ]
   previous = user_questions[-2] if len(user_questions) >= 2 else "none"
-  decision = router_model.invoke([
-    SystemMessage("""Classify the user's current question about a codebase.
+
+  try:
+    decision = router_model.invoke([
+      SystemMessage("""Classify the user's current question about a codebase.
 - "big" if it asks about architecture, how multiple components work together, full pipelines, or spans multiple files
 - "small" for a single function, one file, or one concept
 - "unclear" if the current question is too vague to know which part of the code it means, AND the previous question does not make it clear
-- "off_topic" ONLY when the question is clearly unrelated to software (general knowledge, chit-chat, jokes, weather)
+- "off_topic" when the question is not about THIS codebase: general knowledge, chit-chat, jokes, or requests to write new code unrelated to this repository
 
 A question about how ONE component works is "small", even if it says "how does".
 Only choose "big" when the question clearly involves SEVERAL components.
@@ -238,11 +241,16 @@ Examples (with no previous question):
 - "Explain the function" -> unclear
 - "How do the frontend, the API, and the database interact?" -> big
 - "Explain the overall architecture of this project." -> big
-- "What is the weather today?" -> off_topic"""),
-    HumanMessage(f"Previous question: {previous}\nCurrent question: {question}")
-  ])
-  return {"kind": decision.kind}
+- "What is the weather today?" -> off_topic
+- "Write me a sorting function in Java" -> off_topic"""),
+      HumanMessage(f"Previous question: {previous}\nCurrent question: {question}"),
+    ])
+  except Exception as exc:
+    # Fail closed: if the router can't classify (error, or the model refused), refuse safely
+    print(f"Router failed, refusing to be safe: {type(exc).__name__}")
+    return {"kind": "off_topic"}
 
+  return {"kind": decision.kind}
 
 def refuse(state: State):
   message = "I can only answer questions about this project's code. Try asking how something in the codebase works."
@@ -309,6 +317,23 @@ def planner(state: State, runtime: Runtime[Context]):
     print("Plan:", *plan.todos, sep="\n  - ")
     return {"todos": plan.todos, "notes": []}
 
+def summarize_findings(todo: str, messages: list) -> str | None:
+    """If an explorer ran out of steps, summarize the code it already read."""
+    code_read = "\n\n".join(
+        m.content for m in messages
+        if isinstance(m, ToolMessage) and isinstance(m.content, str)
+    )[-12000:]
+    if not code_read.strip():
+        return None
+    reply = text_model.invoke([
+        SystemMessage(
+            "Summarize what this code shows about the sub-question in 5 to 10 bullet points. "
+            "Use exact function names and file paths. Use only the code below."
+        ),
+        HumanMessage(f"Sub-question: {todo}\n\nCode read:\n{code_read}"),
+    ])
+    return text_of(reply).strip() or None
+
 
 def explorer(state: State, runtime: Runtime[Context]):
     notes = []
@@ -320,6 +345,8 @@ def explorer(state: State, runtime: Runtime[Context]):
         "let me inspect",
         "i will read",
         "i'll read",
+        "model call limit",
+        "run limit",
     )
 
     def is_usable(text: str) -> bool:
@@ -361,14 +388,12 @@ def explorer(state: State, runtime: Runtime[Context]):
 
                 if usable_text:
                     summary = usable_text[-1]
-                    print(
-                        f" Explorer used fallback text for {todo!r}"
-                    )
                 else:
-                    summary = (
+                    summary = summarize_findings(todo, messages) or (
                         "The explorer reached its step limit before producing "
                         "a usable structured summary."
                     )
+                    print(f" Explorer ran out of steps; summarized what it read for {todo!r}")
 
         except Exception as error:
             print(
@@ -414,7 +439,7 @@ def synthesizer(state: State):
                 "must be supported by a finding in the notes. Never output a "
                 "placeholder, planning message, or promise to use another tool. "
                 "If the notes are incomplete, clearly state what is missing. "
-                "Do not invent details." + SOURCES_INSTRUCTION
+                "Do not invent details. " + SOURCES_INSTRUCTION
             ),
             HumanMessage(
                 f"Question: {question}\n\nNotes:\n{notes_text}"
@@ -484,15 +509,16 @@ def respond(state: State):
     instruction = HumanMessage(
         "Using only the code you read above, give the final answer "
         "and list every file you used as a source. "
-        "Do NOT use markdown formatting like **bold** in your answer." + SOURCES_INSTRUCTION
+        "Do NOT use markdown formatting like **bold** in your answer. " + SOURCES_INSTRUCTION
     )
     messages = trim_to_last_turns(state["messages"]) + [instruction]
 
     for attempt in range(3):
         try:
             answer = parse_answer(text_of(text_model.invoke(messages)))
-            if not answer.answer:
-               raise ValueError("Empty answer from model")
+            if not answer.answer or "<tool_call>" in answer.answer:
+               
+               raise ValueError("Empty or invalid answer from model")
             read = files_read(trim_to_last_turns(state["messages"], n=1))
             return {"answer": filter_sources(answer, read)}
         
@@ -590,8 +616,25 @@ builder.add_edge("output_guard", END)
 
 # graph = builder.compile(checkpointer=InMemorySaver())
 
-db = psycopg.connect(os.environ["DATABASE_URL"], autocommit=True, prepare_threshold=0, row_factory=dict_row) # open the shelf
-checkpointer = PostgresSaver(db)  # take the notebook
-checkpointer.setup()   # prepare its pages (first time only)
+def build_graph_with_database():
+  """Build the persistent graph only when the application explicitly needs it."""
+  database_url = os.getenv("DATABASE_URL")
+  if not database_url:
+    raise RuntimeError("DATABASE_URL is required for the persistent graph")
 
-graph = builder.compile(checkpointer=checkpointer).with_config({"recursion_limit": 50})  # write chats in the notebook
+  db = psycopg.connect(
+    database_url,
+    autocommit=True,
+    prepare_threshold=0,
+    row_factory=dict_row,
+  )
+  checkpointer = PostgresSaver(db)
+  checkpointer.setup()
+
+  return builder.compile(
+    checkpointer=checkpointer
+  ).with_config({"recursion_limit": 50})
+
+
+# Importing this module compiles the graph but does not connect to PostgreSQL.
+graph = builder.compile().with_config({"recursion_limit": 50})

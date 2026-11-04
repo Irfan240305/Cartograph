@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from langchain_core.messages import HumanMessage
 
 from cartograph.onboard import add_repo
-from cartograph.graph import graph
+from cartograph.graph import build_graph_with_database
 
 from fastapi.responses import StreamingResponse
 from cartograph.tools import Context
@@ -40,6 +40,7 @@ limiter = Limiter(key_func=get_remote_address)
 
 
 app = FastAPI(title="Cartograph API")
+graph = None
 
 # Guest list for browsers: which frontend addresses may call this API.
 # Comes from a setting so we can add the deployed frontend without rebuilding.
@@ -75,7 +76,7 @@ def ensure_jobs_table():
         conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_repo ON index_jobs (repo_id)")
 
 
-ensure_jobs_table()
+# ensure_jobs_table()
 
 def cleanup_stale_jobs():
     with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
@@ -90,7 +91,7 @@ def cleanup_stale_jobs():
             print(f"Marked {count} stale job(s) as failed")
 
 
-cleanup_stale_jobs()
+# cleanup_stale_jobs()
 
 
 def save_job(job_id, url, status, repo_id=None, result=None, error=None):
