@@ -1,10 +1,18 @@
 import os
 import httpx
+from uuid import uuid4
 from mcp.server.fastmcp import FastMCP
 
 API = os.getenv("CARTOGRAPH_API", "https://ca-cartograph.wittysmoke-9790e289.uaenorth.azurecontainerapps.io")
 
 mcp = FastMCP("cartograph")
+
+THREADS = {}
+
+def thread_for(repo_id:str) -> str:
+    if repo_id not in THREADS:
+        THREADS[repo_id] = str(uuid4())
+    return THREADS[repo_id]
 
 @mcp.tool()
 def list_repos() -> list[dict]:
@@ -20,7 +28,7 @@ def ask_repo(repo_id: str, question:str) -> str:
       """Ask Cartograph a question about an indexed repository's code.
       repo_id looks like 'Irfan240305/OmniReserve'. Returns an answer with cited source files."""
 
-      response = httpx.post(f"{API}/ask", json={"repo_id": repo_id, "question": question, "thread_id": "mcp"}, timeout=300)
+      response = httpx.post(f"{API}/ask", json={"repo_id": repo_id, "question": question, "thread_id": thread_for(repo_id)}, timeout=300)
       response.raise_for_status()
       return response.text
 

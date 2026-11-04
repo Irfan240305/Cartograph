@@ -5,7 +5,6 @@ from langchain_groq import ChatGroq
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
 
 from langchain_huggingface import HuggingFaceEmbeddings
 from functools import lru_cache
@@ -19,17 +18,27 @@ def groq_model() -> BaseChatModel:
   return ChatGroq(
     model=os.getenv("GROQ_MODEL", "openai/gpt-oss-120b"),
     temperature=0,
-    timeout=40,
+    timeout=60,
     max_retries=2,
     max_tokens=8192,
     reasoning_effort="none",
+  )
+def groq_tool_model() -> BaseChatModel:
+  """Groq model for tool-calling jobs (agent, explorers)."""
+  return ChatGroq(
+    model=os.getenv("GROQ_TOOL_MODEL", "openai/gpt-oss-120b"),
+    temperature=0,
+    timeout=40,
+    max_retries=2,
+    max_tokens=8192,
   )
 def gemini_model() -> BaseChatModel:
   """Create a gemini chat model using setting from .env"""
   return ChatGoogleGenerativeAI(
     model=os.getenv("GEMINI_MODEL", "gemini-3.8-flash"),
-    timeout=20,
-    max_retries=2
+    timeout=60,
+    max_retries=0,
+    max_output_tokens=8192,
   )
 
 def openrouter_model() -> BaseChatModel:
@@ -39,6 +48,7 @@ def openrouter_model() -> BaseChatModel:
     base_url=OPENROUTER_URL,
     max_retries=2,
     timeout=20,
+    max_tokens=8192,
     api_key=os.environ["OPENROUTER_API_KEY"]
   )
 
@@ -68,9 +78,18 @@ def get_embedder():
   return HuggingFaceEmbeddings(model_name=os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2"))
 
 def structured_model(form):
-  """A model that fills `form`, with backup models if the main one fails."""
-  primary = get_primary_model().with_structured_output(form)
-  backups = [m.with_structured_output(form) for m in get_fallback_models()]
+  """Create a structured-output model using the same protocol for all providers."""
+  primary = get_primary_model().with_structured_output(
+    form,
+    method="function_calling",
+  )
+
+  backups = [
+    model.with_structured_output(
+      form,
+      method="function_calling",
+    )
+    for model in get_fallback_models()
+  ]
+
   return primary.with_fallbacks(backups)
-
-

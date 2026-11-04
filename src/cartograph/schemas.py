@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 class SourceFile(BaseModel):
   """One file the answer relies on."""
-  path: str = Field(description="File path inside the project, like 'src/main/java/.../OwnerController.java'")
+  path: str = Field(description="File path inside the project, relative to the repository root, e.g. 'src/app/main.py'")
   reason: str = Field(description="What this file contributed to the answer")
 
 
@@ -18,10 +18,11 @@ class CodeAnswer(BaseModel):
 
 class Route(BaseModel):
   """Decide how to handle the user's question."""
-  kind: Literal["small", "big", "off_topic"] = Field(
+  kind: Literal["small", "big", "off_topic", "unclear"] = Field(
     description="small = find or explain one specific thing in the code; "
                 "big = explain the whole project or how parts fit together; "
-                "off_topic = not about this codebase at all (general knowledge, chit-chat, other tasks)"
+                "off_topic = not about this codebase at all (general knowledge, chit-chat, other tasks); "
+                "unclear = too vague to know which part of the code it means, even with the previous question"
   )
 
 

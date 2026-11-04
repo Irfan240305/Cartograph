@@ -5,9 +5,10 @@ import time
 
 from cartograph.graph import graph
 from cartograph.tools import Context
-from cartograph.gateway import print_usage
 
 from langgraph.errors import GraphRecursionError
+
+import uuid
 
 DATASET = "evals/dataset.json"
 RESULTS = "evals/results.json"
@@ -38,19 +39,22 @@ def run_with_retry(item: dict, number: int) -> dict:
     time.sleep(60)
 
     return run_one(item, number)
+  
+RUN_ID = uuid.uuid4().hex[:8]
+
 def run_one(item: dict, number: int) -> dict:
   start = time.time()
 
   result = graph.invoke(
     {"messages": [{"role": "user", "content": item["question"]}]},
     context=Context(repo_path=".", repo_id="Irfan240305/Cartograph"),
-    config={"configurable": {"thread_id": f"eval-{number}"}, "recursion_limit": 50},
+    config={"configurable": {"thread_id": f"eval-{RUN_ID}-{number}"}, "recursion_limit": 50},
   )
 
   seconds = round(time.time() - start, 1)
   answer = result.get("answer")
 
-  return {
+  record = {
     "question": item["question"],
     "type": item["type"],
     "expected_files": item["expected_files"],
@@ -61,6 +65,10 @@ def run_one(item: dict, number: int) -> dict:
     "seconds": seconds,
   }
 
+  if result.get("failed"):
+    record["error"] = "failed: " + record["answer"]
+
+  return record
 
 def main():
   questions = json.loads(open(DATASET, encoding="utf-8").read())

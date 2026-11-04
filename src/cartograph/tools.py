@@ -126,7 +126,7 @@ def list_files(
 
 @tool
 def search_code(
-  text: Annotated[str, "Word or name to search for like 'login' or 'AuthService'"],
+  query: Annotated[str, "Word or name to search for like 'login' or 'AuthService'"],
   runtime: ToolRuntime[Context],
 ) -> str:
   """Find which files contain the given text, with line numbers. Use this first to locate where something is defined or used."""
@@ -142,11 +142,11 @@ def search_code(
       continue
     lines = file.read_text(encoding="utf-8", errors="ignore").splitlines()
     for number, line in enumerate(lines, start=1):
-      if text.lower() in line.lower():
+      if query.lower() in line.lower():
         matches.append(f"{relative.as_posix()}:{number}: {line.strip()[:120]}")
 
   if not matches:
-    return f"No matches found for '{text}' in the project."
+    return f"No matches found for '{query}' in the project."
   shown = "\n".join(matches[:MAX_SEARCH_MATCHES])
   if len(matches) >= MAX_SEARCH_MATCHES:
     shown += f"\n\n[Showing {MAX_SEARCH_MATCHES} of {len(matches)} matches. Try a more specific word.]"

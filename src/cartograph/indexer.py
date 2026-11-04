@@ -12,7 +12,6 @@ from cartograph.tools import IGNORED_DIRS, is_secret
 
 import time
 
-import uuid
 
 import hashlib
 

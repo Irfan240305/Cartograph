@@ -1,6 +1,6 @@
 
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from fastapi import FastAPI, BackgroundTasks, HTTPException, Request
 from pydantic import BaseModel
@@ -23,12 +23,15 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from fastapi.responses import JSONResponse
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 import logging
 from cartograph.logging_config import configure_logging
 
 from cartograph.repos import clone_repo
+
+from langgraph.types import Command
+from cartograph.guards import check_input
 
 configure_logging()
 logger = logging.getLogger(__name__)
@@ -156,7 +159,7 @@ class AskRequest(BaseModel):
         max_length = 4000,
         description = "The question to ask about the repository's code."
     )
-    thread_id: str = "default"
+    thread_id: UUID
 
 
 
@@ -293,17 +296,18 @@ def ask_repository(request: Request, body: AskRequest):
             HumanMessage(content=body.question)
         ],
         "answer": None,
-        "unread": [],
-        "checks": 0,
+        # "unread": [],
+        # "checks": 0,
         "kind": "",
         "todos": [],
         "notes": [],
         "blocked": False,
+        "failed": False,
     }
 
     config = {
         "configurable": {
-            "thread_id": body.thread_id,
+            "thread_id": str(body.thread_id),
         }
     }
 
@@ -312,28 +316,50 @@ def ask_repository(request: Request, body: AskRequest):
         repo_id=body.repo_id,
     )
 
+    snapshot = graph.get_state(config)
+    waiting_for_reply = bool(snapshot.next) and any(
+        task.interrupts for task in snapshot.tasks
+    )
+    if waiting_for_reply:
+        problem = check_input(body.question)
+        if problem:
+            return StreamingResponse(iter([problem + "\n"]), media_type="text/plain; charset=utf-8")
+        inputs = Command(resume={"data": body.question})
+    else:
+        inputs = initial_state
+
+    FINAL_NODES = {"output_guard", "input_guard", "refuse"}
     # Stream the graph's final answer
     def generate():
-        sent = False
         try:
 
             for update in graph.stream(
-                initial_state,
+                inputs,
                 context=context,
                 config=config,
                 stream_mode="updates",
             ):
+                if "__interrupt__" in update:
+                    question = update["__interrupt__"][0].value["question"]
+                    yield question + "\n"
+                    return
                 
-                for node_output in update.values():
+                for node_name,node_output in update.items():
+                    if node_name not in FINAL_NODES or not node_output:
+                        continue
                     answer = node_output.get("answer")
 
-                if answer is not None and not sent:
+                    if answer is None:
+                        continue
+                    if node_output.get("failed"):
+                        logger.warning("Answer failed for repo_id=%s: %s", body.repo_id, answer.answer)
+                        yield "⚠️ Cartograph couldn't finish this answer because the AI providers failed. Please try again in a minute.\n"
+                        return
                     yield answer.answer + "\n"
-
-                    if answer.sources:
-                        for source in answer.sources:
-                            yield f"\n[Source: {source}]\n"
-                    sent = True
+                    for source in answer.sources:
+                        yield f"\n[Source: {source}]\n"
+                    return
+                
         except Exception:
             logger.exception("Answer generation failed for repo_id=%s", body.repo_id)
             yield(
@@ -348,12 +374,12 @@ def ask_repository(request: Request, body: AskRequest):
     )
 
 
-@app.get("/threads/{thread_id}")
-def get_thread(thread_id: str):
-  config = {"configurable": {"thread_id": thread_id}}
-  state = graph.get_state(config)
-  messages = state.values.get("messages", [])
-  return {
-    "thread_id": thread_id,
-    "messages": [{"role": m.type, "content": m.content} for m in messages],
-  }
+# @app.get("/threads/{thread_id}")
+# def get_thread(thread_id: str):
+#   config = {"configurable": {"thread_id": thread_id}}
+#   state = graph.get_state(config)
+#   messages = state.values.get("messages", [])
+#   return {
+#     "thread_id": thread_id,
+#     "messages": [{"role": m.type, "content": m.content} for m in messages],
+#   }

@@ -4,9 +4,14 @@ import "./App.css";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
 function getThreadId(repoId) {
-  return `web-${encodeURIComponent(repoId)}`;
+  const key = `cartograph:thread:${repoId}`;   // where we store the ID
+  let id = localStorage.getItem(key);          // do we already have one?
+  if (!id) {                                   // no → make a new one
+    id = crypto.randomUUID();                               // a random UUID
+    localStorage.setItem(key, id);         // remember it for next time
+  }
+  return id;
 }
-
 function extractSources(rawText = "") {
   const markerSources = [];
   // Preferred format: explicit source metadata emitted by the backend.
