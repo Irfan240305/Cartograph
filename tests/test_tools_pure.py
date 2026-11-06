@@ -5,6 +5,9 @@ from cartograph.tools import is_secret, rrf_merge, safe_path
 from pathlib import Path
 from cartograph.tools import is_eval_data
 
+import pytest
+pytestmark = pytest.mark.unit
+
 def test_safe_path_allows_inside():
     assert safe_path(".", "src/cartograph/tools.py") is not None
 

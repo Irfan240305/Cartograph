@@ -2,6 +2,9 @@ from types import SimpleNamespace
 
 from cartograph.tools import Context, find_symbol
 
+import pytest
+pytestmark = pytest.mark.unit
+
 mine = SimpleNamespace(context=Context(repo_path=".", repo_id="Irfan240305/Cartograph"))
 other = SimpleNamespace(context=Context(repo_path=".", repo_id="psf/requests"))
 

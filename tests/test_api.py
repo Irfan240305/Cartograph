@@ -4,6 +4,8 @@ from fastapi.testclient import TestClient
 
 from cartograph import api
 
+import pytest
+pytestmark = pytest.mark.unit
 
 client = TestClient(api.app)
 

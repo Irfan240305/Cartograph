@@ -143,12 +143,13 @@ def create_table(conn, dimensions: int):
       end_line INT NOT NULL,
       content TEXT NOT NULL,
       embedding VECTOR({dimensions}) NOT NULL,
-      search_words TSVECTOR GENERATED ALWAYS AS ('english', content || ' ' || regexp_replace(content, '([a-z0-9])([A-Z])', '\\1 \\2', 'g')) STORED
+      search_words TSVECTOR GENERATED ALWAYS AS (
+        to_tsvector('english', content || ' ' || regexp_replace(content, '([a-z0-9])([A-Z])', '\\1 \\2', 'g'))
+      ) STORED
     )
   """)
   conn.execute("CREATE INDEX IF NOT EXISTS chunks_words ON chunks USING GIN (search_words)")
   conn.execute("CREATE INDEX IF NOT EXISTS chunks_repo ON chunks (repo_id)")
-
 
 
 

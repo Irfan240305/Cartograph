@@ -1,5 +1,7 @@
 from cartograph.answers import parse_answer
 
+import pytest
+pytestmark = pytest.mark.unit
 
 def test_answer_and_sources_are_split():
     text = (

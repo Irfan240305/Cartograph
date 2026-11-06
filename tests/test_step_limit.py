@@ -1,5 +1,7 @@
 import cartograph.graph as graph_module
 
+import pytest
+pytestmark = pytest.mark.unit
 
 def test_keeps_going_under_the_limit():
     assert graph_module.after_tools({"steps": 3}) == "agent"

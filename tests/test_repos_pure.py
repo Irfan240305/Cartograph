@@ -2,6 +2,8 @@ import pytest
 
 from cartograph.repos import map_file, parse_github_url, repo_folder
 
+import pytest
+pytestmark = pytest.mark.unit
 
 def test_parse_github_url():
     assert parse_github_url("https://github.com/psf/requests") == "psf/requests"

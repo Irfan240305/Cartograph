@@ -3,6 +3,8 @@ from langchain_core.messages import AIMessage
 import cartograph.graph as graph_module
 from langchain_core.messages import HumanMessage, SystemMessage
 
+import pytest
+pytestmark = pytest.mark.unit
 
 class FakeModel:
     def invoke(self, messages):

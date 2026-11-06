@@ -33,18 +33,38 @@ from cartograph.repos import clone_repo
 from langgraph.types import Command
 from cartograph.guards import check_input
 
+from contextlib import asynccontextmanager
+
 configure_logging()
 logger = logging.getLogger(__name__)
 
 limiter = Limiter(key_func=get_remote_address)
 
 
-app = FastAPI(title="Cartograph API")
-graph = None
-
 # Guest list for browsers: which frontend addresses may call this API.
 # Comes from a setting so we can add the deployed frontend without rebuilding.
 allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173").split(",")
+
+_graph = None
+
+
+def get_graph():
+    """Build the database-backed graph once, on first use."""
+    global _graph
+    if _graph is None:
+        _graph = build_graph_with_database()
+    return _graph
+
+
+@asynccontextmanager
+async def lifespan(app):
+    """Runs once when the server starts (not when tests import this file)."""
+    ensure_jobs_table()
+    cleanup_stale_jobs()
+    yield
+
+
+app = FastAPI(title="Cartograph API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -238,6 +258,7 @@ def get_repository_status(job_id: str):
 @app.post("/ask")
 @limiter.limit("2/minute")
 def ask_repository(request: Request, body: AskRequest):
+    graph = get_graph()
     # Confirm that indexing completed successfully
     status = find_repo_status(body.repo_id)
 

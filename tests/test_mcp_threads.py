@@ -1,5 +1,8 @@
 from cartograph.mcp_server import thread_for
 
+import pytest
+pytestmark = pytest.mark.unit
+
 
 def test_same_repo_keeps_same_thread():
     assert thread_for("psf/requests") == thread_for("psf/requests")

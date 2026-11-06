@@ -1,5 +1,8 @@
 from cartograph.guards import check_input, make_safe, neutralise, redact
 
+import pytest
+pytestmark = pytest.mark.unit
+
 
 def test_redact_hides_api_key():
     assert "[REDACTED_API_KEY]" in redact('key = "gsk_8fK2pQ7xLm4Rt9Wz1Bv3Yc5N"')
