@@ -36,7 +36,7 @@ IGNORED_DIRS = {
   ".git", ".venv", "venv", "node_modules", "__pycache__", "target", "data",
   "dist", "build", "out", "bin", "obj",
   "vendor", "lib", "libs", "third_party", "generated",
-  ".idea", ".vscode", ".gradle", ".mvn",
+  ".idea", ".vscode", ".gradle", ".mvn", "evals",
 }
 
 
