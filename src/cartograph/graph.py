@@ -31,10 +31,9 @@ from cartograph.tools import (
     open_file,
 )
 
-from cartograph.schemas import Plan, Note
+from cartograph.schemas import Plan
 
 from langchain.agents import create_agent
-from langchain.agents.structured_output import ToolStrategy
 from langchain.agents.middleware import ModelCallLimitMiddleware
 
 from langchain_core.messages import AIMessage
@@ -43,7 +42,7 @@ from cartograph.guards import check_input
 
 from langchain.agents.middleware import PIIMiddleware
 
-from cartograph.llm import get_fallback_models, get_primary_model, groq_tool_model
+from cartograph.llm import get_fallback_models, groq_tool_model
 
 from cartograph.gateway import UsageCounter, get_model
 
@@ -61,7 +60,7 @@ from langgraph.types import interrupt
 
 from cartograph.answers import SOURCES_INSTRUCTION, parse_answer, text_of
 
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.messages import ToolMessage
 
 
 

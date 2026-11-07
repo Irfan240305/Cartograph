@@ -2,7 +2,6 @@ from pathlib import Path
 
 from cartograph.tools import is_secret, rrf_merge, safe_path
 
-from pathlib import Path
 from cartograph.tools import is_eval_data
 
 import pytest

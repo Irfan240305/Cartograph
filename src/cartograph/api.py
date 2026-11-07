@@ -300,7 +300,7 @@ def ask_repository(request: Request, body: AskRequest):
         logger.info("Repository files missing, re-downloading %s", url)
         try:
             clone_repo(url)
-        except Exception as e:
+        except Exception:
             logger.exception("Re-download failed for repo_id=%s", body.repo_id)
             raise HTTPException(
                 status_code=503,

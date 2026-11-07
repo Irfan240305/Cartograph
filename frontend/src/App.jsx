@@ -15,7 +15,8 @@ function getThreadId(repoId) {
 function extractSources(rawText = "") {
   const markerSources = [];
   // Preferred format: explicit source metadata emitted by the backend.
-  const sourcePattern = /\[Source:\s*path=([\'\"])(.*?)\1\s+reason=([\'\"])([\s\S]*?)\3\s*\]/g;
+
+    const sourcePattern = /\[Source:\s*path=(['"])(.*?)\1\s+reason=(['"])([\s\S]*?)\3\s*\]/g;
   let match;
 
   while ((match = sourcePattern.exec(rawText)) !== null) {
