@@ -6,7 +6,6 @@ jobs:
   backend:
     runs-on: ubuntu-latest
     env:
-      # Models are created at import time; tests never call them, so dummy keys are enough
       GROQ_API_KEY: dummy
       GOOGLE_API_KEY: dummy
       OPENROUTER_API_KEY: dummy
