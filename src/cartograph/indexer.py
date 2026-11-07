@@ -21,7 +21,13 @@ logger = logging.getLogger(__name__)
 
 load_dotenv(override=True)
 
-CODE_EXTENSIONS = {".py", ".java", ".md", ".toml", ".js", ".ts"}
+CODE_EXTENSIONS = {
+  ".py", ".java", ".js", ".ts", ".jsx", ".tsx",
+  ".go", ".rb", ".php", ".cs", ".kt", ".rs", ".c", ".cpp", ".h",
+  ".html", ".css", ".md", ".toml", ".json", ".yml", ".yaml", ".sql",
+}
+# Generated files: huge, and useless for answering questions
+SKIP_FILES = {"package-lock.json", "yarn.lock", "pnpm-lock.yaml", "poetry.lock", "uv.lock"}
 
 
 def code_files(repo_path: str) -> list[Path]:
@@ -34,6 +40,8 @@ def code_files(repo_path: str) -> list[Path]:
     if not file.is_file():
       continue
     if file.suffix not in CODE_EXTENSIONS:
+      continue
+    if file.name in SKIP_FILES:
       continue
     if is_secret(file):
       continue
@@ -50,7 +58,18 @@ LANGUAGES = {
   ".py": Language.PYTHON,
   ".java": Language.JAVA,
   ".js": Language.JS,
+  ".jsx": Language.JS,
   ".ts": Language.TS,
+  ".tsx": Language.TS,
+  ".go": Language.GO,
+  ".rb": Language.RUBY,
+  ".php": Language.PHP,
+  ".cs": Language.CSHARP,
+  ".kt": Language.KOTLIN,
+  ".rs": Language.RUST,
+  ".c": Language.C,
+  ".cpp": Language.CPP,
+  ".html": Language.HTML,
   ".md": Language.MARKDOWN,
 }
 CHUNK_SIZE = 800

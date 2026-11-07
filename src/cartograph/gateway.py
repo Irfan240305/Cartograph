@@ -36,11 +36,22 @@ def print_usage():
     print(f"  {job:<10} {tokens:>8,}")
   print(f"  {'TOTAL':<10} {total:>8,}")
 
+def small_model():
+  """Small gpt-oss model for short jobs: routing, judging, summaries."""
+  return ChatGroq(
+    model=os.getenv("GROQ_SMALL_MODEL", "openai/gpt-oss-20b"),
+    temperature=0.3,
+    reasoning_effort="low",
+    max_tokens=2048,
+    timeout=40,
+    max_retries=2,
+  )
+
 
 def pick_primary(job: str):
   """Small model for easy jobs, tool model for tool-calling jobs, main model for the rest."""
   if job in EASY_JOBS:
-    return ChatGroq(model=os.getenv("GROQ_SMALL_MODEL", "openai/gpt-oss-20b"), temperature=0, timeout=20)
+    return small_model()
   if job == "agent":
     return groq_tool_model()
   return get_primary_model()

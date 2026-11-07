@@ -44,3 +44,9 @@ def test_make_safe_wraps_in_markers():
     result = make_safe("def hello(): pass")
     assert "<<UNTRUSTED CODE START>>" in result
     assert "<<UNTRUSTED CODE END>>" in result
+
+def test_redact_hides_connection_strings():
+    text = "DATABASE_URL is postgresql://cartograph:secret123@localhost:5432/cartograph"
+    result = redact(text)
+    assert "secret123" not in result
+    assert "REDACTED" in result

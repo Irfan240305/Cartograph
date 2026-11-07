@@ -41,3 +41,13 @@ def test_eval_answer_key_is_hidden():
     assert is_eval_data(Path("evals/results.json"))
     assert not is_eval_data(Path("evals/score.py"))
     assert not is_eval_data(Path("data/dataset.json"))
+
+def test_code_files_includes_web_files_and_skips_lockfiles(tmp_path):
+    from cartograph.indexer import code_files
+
+    (tmp_path / "index.html").write_text("<h1>Hi</h1>")
+    (tmp_path / "style.css").write_text("h1 { color: red; }")
+    (tmp_path / "package-lock.json").write_text("{}")
+
+    names = {file.name for file in code_files(str(tmp_path))}
+    assert names == {"index.html", "style.css"}

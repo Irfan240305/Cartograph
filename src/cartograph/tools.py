@@ -340,5 +340,23 @@ def keyword_search(
     results.append(f"{path} (lines {start_line}-{end_line}):\n{content}")
   return make_safe("\n\n---\n\n".join(results))
 
+@tool
+def search(
+  query: Annotated[str, "What you're looking for, in plain words or exact terms"],
+  runtime: ToolRuntime[Context],
+) -> str:
+  """Same as hybrid_search. Finds code by exact words and by what it does."""
+  return hybrid_search.func(query=query, runtime=runtime)
 
-ALL_TOOLS = [list_files, search_code, read_file, ask_user, semantic_search, navigate_repo, find_symbol, keyword_search, hybrid_search]
+
+@tool
+def open_file(
+  path: Annotated[str, "File path inside the project"],
+  runtime: ToolRuntime[Context],
+  start_line: Annotated[int | None, "First line to read, 1-based"] = None,
+  end_line: Annotated[int | None, "Last line to read, inclusive"] = None,
+) -> str:
+  """Same as read_file. Reads a file from the project."""
+  return read_file.func(path=path, runtime=runtime, start_line=start_line, end_line=end_line)
+  
+ALL_TOOLS = [list_files, search_code, read_file, ask_user, semantic_search, navigate_repo, find_symbol, keyword_search, hybrid_search, search, open_file]
