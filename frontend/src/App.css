@@ -581,3 +581,28 @@ button:disabled { opacity: .4; cursor: not-allowed !important; }
     font-size: 10px;
   }
 }
+/* =========================================
+   NEW CHAT BUTTON
+========================================= */
+
+.heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.new-chat {
+  padding: 7px 11px;
+  border: 1px solid #3c6246;
+  border-radius: 5px;
+  background: #20242c;
+  color: #b4dbb8;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.new-chat:hover:not(:disabled) {
+  background: #294b33;
+  color: #d4ead6;
+}

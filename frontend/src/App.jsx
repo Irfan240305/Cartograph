@@ -220,6 +220,13 @@ export default function App() {
     return () => clearInterval(timer);
   }, [repos]);
 
+  function startNewChat() {
+    if (!selectedRepo || asking) return;
+    localStorage.setItem(`cartograph:thread:${selectedRepo}`, crypto.randomUUID());
+    localStorage.removeItem(`cartograph:chat:${selectedRepo}`);
+    setMessages([]);
+  }
+
   async function addRepo(e) {
     e.preventDefault();
     if (!url.trim() || adding) return;
@@ -555,7 +562,14 @@ export default function App() {
                       : "Select an indexed project to start exploring."}
                   </p>
                 </div>
-                {activeRepo && <span className="indexed-label">● Indexed</span>}
+                {activeRepo && (
+                  <div className="heading-actions">
+                    <button className="new-chat" onClick={startNewChat} disabled={asking}>
+                      + New chat
+                    </button>
+                    <span className="indexed-label">● Indexed</span>
+                  </div>
+                )}
               </div>
 
               <div className="chat-workspace">
@@ -574,9 +588,9 @@ export default function App() {
                         <div className="prompt-grid">
                           {[
                             ["Architecture", "How is this project organised?"],
-                            ["Find a function", "Where is the safe_path function defined?"],
-                            ["Trace execution", "How does a question travel through Cartograph?"],
-                            ["Search code", "How does hybrid_search work?"],
+                            ["Entry point", "Where does the application start?"],
+                            ["Trace execution", "How does a question travel through this project?"],
+                            ["Data", "How is data stored and accessed?"],
                           ].map(([title, prompt]) => (
                             <button
                               className="prompt-card"
