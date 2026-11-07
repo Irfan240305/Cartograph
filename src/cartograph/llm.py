@@ -62,8 +62,8 @@ def get_primary_model() -> BaseChatModel:
 def get_fallback_models() -> list[BaseChatModel]:
     """The fallback models cartograph uses if the primary model fails"""
     return [
-        gemini_model(),
-        openrouter_model()
+        openrouter_model(),
+        gemini_model()
     ]
 
 def get_all_models() -> dict[str, BaseChatModel]:
