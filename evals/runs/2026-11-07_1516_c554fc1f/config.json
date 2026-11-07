@@ -1,0 +1,9 @@
+{
+  "commit": "d919577",
+  "dataset": "evals/dataset.json",
+  "questions": 47,
+  "groq_model": "qwen/qwen3.8-27b",
+  "groq_tool_model": "openai/gpt-oss-120b",
+  "groq_small_model": "openai/gpt-oss-20b",
+  "embedding_model": "sentence-transformers/all-MiniLM-L6-v2"
+}

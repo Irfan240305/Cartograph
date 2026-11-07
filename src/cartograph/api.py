@@ -258,7 +258,6 @@ def get_repository_status(job_id: str):
 @app.post("/ask")
 @limiter.limit("2/minute")
 def ask_repository(request: Request, body: AskRequest):
-    graph = get_graph()
     # Confirm that indexing completed successfully
     status = find_repo_status(body.repo_id)
 
@@ -337,7 +336,7 @@ def ask_repository(request: Request, body: AskRequest):
         repo_path=str(repo_path),
         repo_id=body.repo_id,
     )
-
+    graph = get_graph()
     snapshot = graph.get_state(config)
     waiting_for_reply = bool(snapshot.next) and any(
         task.interrupts for task in snapshot.tasks
