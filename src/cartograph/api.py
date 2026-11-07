@@ -15,6 +15,7 @@ from cartograph.tools import Context
 import os
 import json
 import psycopg
+import time
 
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -44,7 +45,8 @@ limiter = Limiter(key_func=get_remote_address)
 # Guest list for browsers: which frontend addresses may call this API.
 # Comes from a setting so we can add the deployed frontend without rebuilding.
 allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173").split(",")
-
+# Maximum time one question may take before we stop and tell the user
+ASK_TIMEOUT_SECONDS = int(os.getenv("ASK_TIMEOUT_SECONDS", "120"))
 _graph = None
 
 
@@ -352,24 +354,18 @@ def ask_repository(request: Request, body: AskRequest):
     FINAL_NODES = {"output_guard", "input_guard", "refuse"}
     # Stream the graph's final answer
     def generate():
+        started = time.monotonic()
         try:
-
-            for update in graph.stream(
-                inputs,
-                context=context,
-                config=config,
-                stream_mode="updates",
-            ):
+            for update in graph.stream(inputs, context=context, config=config, stream_mode="updates"):
                 if "__interrupt__" in update:
                     question = update["__interrupt__"][0].value["question"]
                     yield question + "\n"
                     return
-                
-                for node_name,node_output in update.items():
+
+                for node_name, node_output in update.items():
                     if node_name not in FINAL_NODES or not node_output:
                         continue
                     answer = node_output.get("answer")
-
                     if answer is None:
                         continue
                     if node_output.get("failed"):
@@ -379,6 +375,11 @@ def ask_repository(request: Request, body: AskRequest):
                     yield answer.answer + "\n"
                     for source in answer.sources:
                         yield f"\n[Source: {source}]\n"
+                    return
+
+                if time.monotonic() - started > ASK_TIMEOUT_SECONDS:
+                    logger.warning("Question timed out for repo_id=%s", body.repo_id)
+                    yield "⚠️ This question took too long to answer. Please try again, or ask something more specific.\n"
                     return
                 
         except Exception:
