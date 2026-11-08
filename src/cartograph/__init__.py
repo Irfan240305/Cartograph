@@ -1,2 +1,1 @@
-def main() -> None:
-    print("Hello from cartograph!")
+"""Cartograph: ask questions about any GitHub repository, answered from its code."""

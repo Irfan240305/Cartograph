@@ -1,11 +1,12 @@
 import os
-
+import sys
 import psycopg
 from dotenv import load_dotenv
 
 load_dotenv(override=True)
 
-with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
+database_url = sys.argv[1] if len(sys.argv) > 1 else os.environ["DATABASE_URL"]
+with psycopg.connect(database_url) as conn:
     conn.execute("ALTER TABLE chunks DROP COLUMN IF EXISTS search_words")
     conn.execute("""
         ALTER TABLE chunks ADD COLUMN search_words TSVECTOR GENERATED ALWAYS AS (

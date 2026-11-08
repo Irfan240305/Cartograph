@@ -1,7 +1,7 @@
 [project]
 name = "cartograph"
 version = "0.1.0"
-description = "Add your description here"
+description = "AI code-intelligence platform: index a GitHub repository and ask questions answered from its code, with citations."
 readme = "README.md"
 authors = [
     { name = "240305", email = "irfanubaidhu@gmail.com" }
@@ -29,8 +29,7 @@ dependencies = [
     "uvicorn[standard]>=0.54.0",
 ]
 
-[project.scripts]
-cartograph = "cartograph:main"
+
 [build-system]
 requires = ["uv_build>=0.12.20,<0.13.0"]
 build-backend = "uv_build"

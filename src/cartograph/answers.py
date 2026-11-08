@@ -5,7 +5,10 @@ from cartograph.schemas import CodeAnswer, SourceFile
 SOURCES_INSTRUCTION = (
     "Write the answer in plain text. Then, on a new line, write SOURCES: "
     "followed by one line per file you used, in the form "
-    "'- path/to/file.py: what it contributed'. Only list files you actually read."
+    "'- path/to/file.py: what it contributed'. "
+    "List a file only if a specific claim in your answer comes from it. "
+    "Do not list files you only searched or skimmed. "
+    "A question about one function or class usually needs one or two sources."
 )
 
 # Matches a line like "SOURCES:", "Sources", "**Sources:**" or "## Sources"
